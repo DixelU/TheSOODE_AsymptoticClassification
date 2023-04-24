@@ -81,6 +81,7 @@ def drawSolutions(solutions):
 
 # returns "classes" of solution
 def groundTruthClassifier(solutions):
+    None
 
 print(polarAngleExtractor(solutions))
 drawSolutions(solutions)
