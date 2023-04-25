@@ -53,8 +53,14 @@ def drawSolutions(solutions, xrange, yrange, bg_colors=None):
         x = bg_colors['points'][:,0]
         y = bg_colors['points'][:,1]
         maximal_confidence = bg_colors['m_conf']
+        colors = bg_colors['colors']
         
-        plt.scatter(x, y, (1. - np.array(maximal_confidence))*50, )
+        #plt.scatter(x, y, (1. - np.array(maximal_confidence))*50, c=colors)
+
+        ax = plt.gca()
+        #center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, colors="k")
+        center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, cmap="RdBu_r")
+        fig.colorbar(center, ax=ax)
 
     for i in range(len(solutions)):
         plt.scatter(solutions[i][0][0],solutions[i][0][1], marker='x')
@@ -129,13 +135,11 @@ def __GT_base1_classifier(solutions, parameters):
         classes.append((zone00, zone01, zone10, zone11))
     return detected_type, classes
 
-def makeSomeSolutions(N, dims, initvals_range, center=0):
+def makeSomeSolutions(N, dims, initvals_range):
     solutions = []
-    if not hasattr(center, '__len__'):
-        center = [float(center) for _ in range(dims)]
 
     for i in range(N):
-        x_i = [random.uniform(initvals_range[i][0], initvals_range[i][1]) + center[i] for i in range(dims)]
+        x_i = [random.uniform(initvals_range[i][0], initvals_range[i][1]) for i in range(dims)]
 
         rk = RK23(func, 0, np.array(x_i, dtype=np.float64), T_bound, max_step=max_step)
 
@@ -166,8 +170,8 @@ def makeLinearCombinations(points, repeats):
 def makeCubePointsFromRanges(ranges):
     ranges = np.array(ranges)
     
-    size = 50
-    t_values = [float(i)/size for i in range(size)]
+    size = 10
+    t_values = [float(i)/size for i in range(size + 1)]
     
     ranges_combination = [ranges[:,0] * t + (1. - t) * ranges[:,1] for t in t_values]
     return list(itertools.product(*zip(*ranges_combination)))
@@ -184,13 +188,20 @@ def classesProbabilitiesToSingularValues(class_probabilities):
     number_of_classes = len(class_probabilities[0])
     hue_values = np.linspace(0, 1, number_of_classes)
     colors = []
+    max_probs = []
     
     for single_element in class_probabilities:
         normalised_probabilites = single_element / np.sum(single_element)
-        colors.append(np.max(normalised_probabilites))
-    return colors
-
-
+        current_color = np.array([0,0,0], dtype=np.float64)
+        for i in range(len(normalised_probabilites)):
+            current_color += \
+                np.array(colorsys.hsv_to_rgb(
+                    hue_values[i],
+                   normalised_probabilites[i], 1))\
+                        * normalised_probabilites[i]
+        colors.append(current_color) 
+        max_probs.append(np.max(normalised_probabilites))
+    return np.array(colors), np.array(max_probs)
 
 fig: Figure = plt.figure()
 
@@ -206,7 +217,6 @@ T_bound = 100
 max_step = 1
 func = createFunc(SOODE_parameters)
 
-
 initvals_range = list([(-20,20)]*2)
 solutions = makeSomeSolutions(N, 2, initvals_range)
 detected_type, classes = __GT_base1_classifier(solutions, SOODE_parameters)
@@ -219,12 +229,13 @@ some_random_set_of_points_in_cube = makeLinearCombinations(initvals_cube_points,
 normalised_points_in_cube = normalize(some_random_set_of_points_in_cube, initvals_range)
 
 probs = base_trained_classifier.predict_proba(normalised_points_in_cube)
-color_values = classesProbabilitiesToSingularValues(probs)
+colors,max_confidence  = classesProbabilitiesToSingularValues(probs)
 
 print(detected_type)
 drawSolutions(solutions,
               *initvals_range[:2],
               bg_colors={
                   'points': some_random_set_of_points_in_cube, 
-                  'm_conf': color_values
+                  'm_conf': max_confidence,
+                  'colors': colors
               })
