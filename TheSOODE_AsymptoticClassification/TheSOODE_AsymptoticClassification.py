@@ -1,3 +1,4 @@
+from cmath import inf
 import itertools
 import numpy as np
 import math
@@ -14,17 +15,25 @@ from scipy.integrate import RK45, RK23, DOP853
 from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn.neighbors import KNeighborsClassifier
 from matplotlib import pyplot as plt
+from numpy.polynomial.polynomial import polyval, polyfromroots
 
-from numba import njit
+#from numba import njit
 
-def f(X, p):
+def f_regular(X, p):
     return np.array([
            p[0]*X[0] + p[1]*X[1],
            p[2]*X[0] + p[3]*X[1]
         ], dtype=np.float64)
 
-def createFunc(p):
-    return lambda t, y: f(y, p) 
+def f_polynomial(X, p):
+    return np.array([polyval(X[0], p), -X[1]], dtype=np.float64)
+
+def createFunc(p, kind=None):
+    if not kind:
+        return lambda t, y: f_regular(y, p) 
+    if kind == 'polynomial':
+        p = polyfromroots(p)
+        return lambda t, y: f_polynomial(y, p) 
 
 def getSolution(rk, iters):
     line = [rk.y]
@@ -135,6 +144,24 @@ def __GT_base1_classifier(solutions, parameters):
         classes.append((zone00, zone01, zone10, zone11))
     return detected_type, classes
 
+def __GT_base2_classifier(solutions, parameters):
+    classes = []
+    parameters = list(parameters)
+    parameters.sort()
+    interval_points = [float('-inf')] + parameters + [float('inf')]
+    for solution in solutions:
+        
+        solution_classes_embbedding = [False] * len(interval_points)
+        x0 = solution[0][0]
+        
+        is_bigger = lambda v, target: v > target
+        value_index = next(i for i, v in enumerate(interval_points) if is_bigger(v, x0))
+        solution_classes_embbedding[value_index] = True
+
+        classes.append(solution_classes_embbedding)
+
+    return 'regular', classes
+
 def makeSomeSolutions(N, dims, initvals_range):
     solutions = []
 
@@ -203,23 +230,30 @@ def classesProbabilitiesToSingularValues(class_probabilities):
         max_probs.append(np.max(normalised_probabilites))
     return np.array(colors), np.array(max_probs)
 
+def solutionClassidier(solutions, SOODE_parameters, SOODE_kind):
+    if not SOODE_kind:
+        return __GT_base1_classifier(solutions, SOODE_parameters)
+    if SOODE_kind == 'polynomial':
+        return __GT_base2_classifier(solutions, SOODE_parameters)
+
 fig: Figure = plt.figure()
 
+SOODE_kind = 'polynomial'
 SOODE_parameters = [
-    random.uniform(-5, 5),
-    random.uniform(-5, 5),
-    random.uniform(-5, 5),
-    random.uniform(-5, 5)]
+    random.uniform(-10, 10),
+    random.uniform(-10, 10),
+    random.uniform(-10, 10),
+    random.uniform(-10, 10)]
 
 N = 500
 RK_iters = 25
 T_bound = 100
 max_step = 1
-func = createFunc(SOODE_parameters)
+func = createFunc(SOODE_parameters, SOODE_kind)
 
 initvals_range = list([(-20,20)]*2)
 solutions = makeSomeSolutions(N, 2, initvals_range)
-detected_type, classes = __GT_base1_classifier(solutions, SOODE_parameters)
+detected_type, classes = solutionClassidier(solutions, SOODE_parameters, SOODE_kind)
 numpyfied_classes = np.asarray(np.array(classes) > 0).nonzero()[1]
 initval_embeddings = normalize(solutions[:,0], initvals_range)
 base_trained_classifier = runClassificationTrain(initval_embeddings, numpyfied_classes, classifier_name="knn", params={"k": 10, "cores_count": 1})
