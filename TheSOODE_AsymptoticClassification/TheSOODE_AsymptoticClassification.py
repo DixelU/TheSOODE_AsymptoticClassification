@@ -59,7 +59,7 @@ def drawSolutions(solutions, xrange, yrange, bg_colors=None):
 
         ax = plt.gca()
         #center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, colors="k")
-        center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, cmap="RdBu_r")
+        center = ax.tricontourf(x, y, maximal_confidence, levels=20, cmap="RdBu_r")
         fig.colorbar(center, ax=ax)
 
     for i in range(len(solutions)):
@@ -75,19 +75,19 @@ def __GT_base1_classifier(solutions, parameters):
     c = parameters[2]
     d = parameters[3]
 
-    l1 = (-(a + d) + ((a + d) ** 2 - 4 * (a * d - b * c)) ** 0.5) * 0.5
-    l2 = (-(a + d) - ((a + d) ** 2 - 4 * (a * d - b * c)) ** 0.5) * 0.5
+    l1 = ((a + d) + ((a + d) ** 2 - 4 * (a * d - b * c)) ** 0.5) * 0.5
+    l2 = ((a + d) - ((a + d) ** 2 - 4 * (a * d - b * c)) ** 0.5) * 0.5
 
     is_complex = isinstance(l1, complex) or isinstance(l2, complex)
 
-    diverging_knot = (not is_complex) and l1.real < 0 and l2.real < 0
-    converging_knot = (not is_complex) and l1.real > 0 and l2.real > 0
+    diverging_knot = (not is_complex) and l1.real > 0 and l2.real > 0
+    converging_knot = (not is_complex) and l1.real < 0 and l2.real < 0
     saddle = (not is_complex) and l1.real * l2.real < 0
 
     constant_field = (not is_complex) and (l1.real == 0 or l2.real == 0)
 
-    converging_focus = (is_complex) and l1.real > 0
-    diverging_focus = (is_complex) and l1.real < 0
+    converging_focus = (is_complex) and l1.real < 0
+    diverging_focus = (is_complex) and l1.real > 0
     stationary_focus = (is_complex) and l1.real == 0
 
     detected_type = "unknown"
