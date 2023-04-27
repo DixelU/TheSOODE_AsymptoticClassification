@@ -374,6 +374,7 @@ class SOODE_AC_Core:
         #    normalize(self.base_drawing_plane_points, drawing_ranges)
         self.drawing_params = drawing_params
         self.drawing_ranges = drawing_ranges
+        self.drawing_counter = 0
             
         self.linear_combinations_after_selection = SOODE_params['linear_combinations_after_selection']
         self.solver_iterations = 25
@@ -463,7 +464,7 @@ class SOODE_AC_Core:
         local_points_pool_classes = None
         pool_of_lcopps = None
         
-        fig: Figure = plt.figure()
+        #fig: Figure = plt.figure()
 
         for linear_combinations_of_proposed_points in new_ml_state_points_by_regions:
             mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, self.ml_linear_combinations_density)
@@ -484,12 +485,13 @@ class SOODE_AC_Core:
                 pool_of_lcopps = linear_combinations_of_proposed_points
             
             filtered_lcopps = linear_combinations_of_proposed_points[(probs < self.ml_accuracy_threshold).all(axis=1)]
-            plt.scatter(filtered_lcopps[:,0], filtered_lcopps[:,1])
+            #plt.scatter(filtered_lcopps[:,0], filtered_lcopps[:,1])
 
         self.prev_iteration_proposed_points = pool_of_lcopps[(local_points_pool_classes < self.ml_accuracy_threshold).all(axis=1)]
         self.prev_iteration_proposed_points = np.array(makeLinearCombinations(self.prev_iteration_proposed_points, 100))
         
-        plt.savefig(fname='lcopps/lcopps.png')
+        #plt.savefig(fname=f'lcopps/lcopps{self.drawing_counter}.png')
+        self.drawing_counter += 1
 
     def drawCurrentState(self, save_to_file=None):
         x_index = self.drawing_params['x_index']
