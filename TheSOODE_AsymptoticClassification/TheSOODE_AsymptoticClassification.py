@@ -443,7 +443,7 @@ class SOODE_AC_Core:
                                                  classifier_name=self.ml_classifier_type, 
                                                  params=self.ml_classifier_params)
         
-        fig: Figure = plt.figure()
+        #fig: Figure = plt.figure()
         #self.prev_iteration_proposed_points = None
         if self.prev_iteration_proposed_points is None:
             whole_region_points = self.base_initial_cube_points#makeFinerMesh(self.base_initial_cube_points, self.ml_linear_combinations_density)
@@ -464,8 +464,8 @@ class SOODE_AC_Core:
                     self.prev_iteration_proposed_points[array_index])
             self.preprev_iter_proposed_points = self.prev_iteration_proposed_points
 
-        plt.savefig(fname=f'lcopps/clusters{self.drawing_counter}.png')
-        plt.close('all')
+        #plt.savefig(fname=f'lcopps/clusters{self.drawing_counter}.png')
+        #plt.close('all')
         
         pool_of_lcopps = None
         
@@ -546,7 +546,7 @@ class SOODE_AC_Core:
               })
         
 SOODE_AC_instance = SOODE_AC_Core(
-    SOODE_kind='polynomial',
+    SOODE_kind='',
     SOODE_params={
         'classifier_params': {
             'k': 20,
