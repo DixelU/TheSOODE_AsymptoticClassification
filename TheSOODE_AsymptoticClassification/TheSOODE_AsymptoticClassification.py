@@ -423,9 +423,12 @@ class SOODE_AC_Core:
             
         detected_type, classes = self.solution_classifier(new_solutions, self.SOODE_parameters, self.SOODE_kind)
         
+        if len(classes) == 0: 
+            return
+
         if self.prev_iteration_proposed_points is None: 
             print(detected_type)
-            
+        
         numpyfied_classes = np.argmax(classes, axis=1)
 
         if self.true_solutions is not None:
@@ -462,7 +465,7 @@ class SOODE_AC_Core:
             for array_index, cluster_index in enumerate(predicted_clusters):
                 new_ml_state_points_by_regions[cluster_index].append(
                     self.prev_iteration_proposed_points[array_index])
-            self.preprev_iter_proposed_points = self.prev_iteration_proposed_points
+            #self.preprev_iter_proposed_points = self.prev_iteration_proposed_points
 
         #plt.savefig(fname=f'lcopps/clusters{self.drawing_counter}.png')
         #plt.close('all')
@@ -503,10 +506,13 @@ class SOODE_AC_Core:
         self.drawing_counter += 1
 
     def drawCurrentState(self, save_to_file=None):
+        if len(self.prev_iteration_proposed_points) == 0:
+            return
+
         x_index = self.drawing_params['x_index']
         y_index = self.drawing_params['y_index']
 
-        if self.SOODE_dims > 2:
+        if self.SOODE_dims > 2: 
             slice_coordinates = self.drawing_params.get('slice_coords', None)
             if not slice_coordinates:
                 slice_center = np.average(self.prev_iteration_proposed_points, axis=0)
@@ -546,7 +552,7 @@ class SOODE_AC_Core:
               })
         
 SOODE_AC_instance = SOODE_AC_Core(
-    SOODE_kind='',
+    SOODE_kind=None,
     SOODE_params={
         'classifier_params': {
             'k': 20,
