@@ -23,6 +23,7 @@ from numpy.polynomial.polynomial import polyval, polyfromroots
 
 #from numba import njit
 matplotlib.use('Agg')
+random.seed(42)
 
 def f_regular(X, p):
     return np.array([
@@ -442,6 +443,7 @@ class SOODE_AC_Core:
                                                  classifier_name=self.ml_classifier_type, 
                                                  params=self.ml_classifier_params)
         
+        fig: Figure = plt.figure()
         #self.prev_iteration_proposed_points = None
         if self.prev_iteration_proposed_points is None:
             whole_region_points = self.base_initial_cube_points#makeFinerMesh(self.base_initial_cube_points, self.ml_linear_combinations_density)
@@ -454,43 +456,50 @@ class SOODE_AC_Core:
 
             predicted_clusters = self.clustrizer.fit_predict(self.prev_iteration_proposed_points)
             
+            plt.scatter(self.prev_iteration_proposed_points[:,0], self.prev_iteration_proposed_points[:,1], c=predicted_clusters)
+
             new_ml_state_points_by_regions = [[] for _ in range(self.clustrizer.n_clusters)]
             for array_index, cluster_index in enumerate(predicted_clusters):
                 new_ml_state_points_by_regions[cluster_index].append(
                     self.prev_iteration_proposed_points[array_index])
             self.preprev_iter_proposed_points = self.prev_iteration_proposed_points
 
-        local_points_pool = None
-        local_points_pool_classes = None
+        plt.savefig(fname=f'lcopps/clusters{self.drawing_counter}.png')
+        plt.close('all')
+        
         pool_of_lcopps = None
         
-        #fig: Figure = plt.figure()
+        fig: Figure = plt.figure()
 
-        for linear_combinations_of_proposed_points in new_ml_state_points_by_regions:
+        colors = []
+        for index, linear_combinations_of_proposed_points in enumerate(new_ml_state_points_by_regions):
             mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, self.ml_linear_combinations_density)
+            mesh_points_in_the_region = makeLinearCombinations(mesh_points_in_the_region, len(mesh_points_in_the_region))
             linear_combinations_of_proposed_points = np.append(linear_combinations_of_proposed_points, mesh_points_in_the_region, axis=0)
 
             normalised_lcopp = normalize(linear_combinations_of_proposed_points, self.initial_region_ranges)
             probs = self.classifier.predict_proba(normalised_lcopp)
-
-            if local_points_pool is not None:
-                local_points_pool = np.append(local_points_pool, normalised_lcopp, axis=0)
-                local_points_pool_classes = np.append(local_points_pool_classes, probs, axis=0)
-                linear_combinations_of_proposed_points = np.array(linear_combinations_of_proposed_points)
-                pool_of_lcopps = np.append(linear_combinations_of_proposed_points, pool_of_lcopps, axis=0) 
-            else: 
-                local_points_pool = normalised_lcopp
-                local_points_pool_classes = probs
-                linear_combinations_of_proposed_points = np.array(linear_combinations_of_proposed_points)
-                pool_of_lcopps = linear_combinations_of_proposed_points
             
             filtered_lcopps = linear_combinations_of_proposed_points[(probs < self.ml_accuracy_threshold).all(axis=1)]
-            #plt.scatter(filtered_lcopps[:,0], filtered_lcopps[:,1])
 
-        self.prev_iteration_proposed_points = pool_of_lcopps[(local_points_pool_classes < self.ml_accuracy_threshold).all(axis=1)]
-        self.prev_iteration_proposed_points = np.array(makeLinearCombinations(self.prev_iteration_proposed_points, 100))
+            if pool_of_lcopps is not None:
+                pool_of_lcopps = np.append(filtered_lcopps, pool_of_lcopps, axis=0) 
+            else: 
+                pool_of_lcopps = filtered_lcopps
+            
+            colors += [index] * filtered_lcopps.shape[0]
+            
+        plt.scatter(pool_of_lcopps[:,0], 
+                    pool_of_lcopps[:,1],
+                    c=colors)
+
+        self.prev_iteration_proposed_points = pool_of_lcopps#pool_of_lcopps[(local_points_pool_classes < self.ml_accuracy_threshold).all(axis=1)]
+        #self.prev_iteration_proposed_points = self.prev_iteration_proposed_points
+        #np.array(makeLinearCombinations(self.prev_iteration_proposed_points, self.linear_combinations_after_selection))
         
-        #plt.savefig(fname=f'lcopps/lcopps{self.drawing_counter}.png')
+        plt.savefig(fname=f'lcopps/lcopps{self.drawing_counter}.png')
+        plt.close('all')
+
         self.drawing_counter += 1
 
     def drawCurrentState(self, save_to_file=None):
@@ -541,10 +550,10 @@ SOODE_AC_instance = SOODE_AC_Core(
     SOODE_params={
         'classifier_params': {
             'k': 20,
-            'cores_count': 6
+            'cores_count': -1
         },
         '__clustering_n': 15,
-        '__rk_paralelism': 6,
+        '__rk_paralelism': 12,
         'linear_combinations_after_selection': 100,
         'drawing_params': {
             'xmin': -20,
