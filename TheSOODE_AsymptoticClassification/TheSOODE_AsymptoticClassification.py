@@ -83,6 +83,7 @@ def polarAngleExtractor(solutions):
 # bg = (points, colors)
 def drawSolutions(solutions, drawing_params=None, data_container=None):
     fig: Figure = plt.figure()
+    #plt.figure(figsize=(10, 10))
 
     plt.xlim(drawing_params['xmin'], drawing_params['xmax'])
     plt.ylim(drawing_params['ymin'], drawing_params['ymax'])
@@ -94,18 +95,19 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     x_index = drawing_params['x_index']
     y_index = drawing_params['y_index']
 
-    numer_of_true_solutions = drawing_params.get('draw_last', 100)
+    number_of_true_solutions = drawing_params.get('draw_last', 100)
     limit_true_solutions = True
-    if numer_of_true_solutions is None: 
-        numer_of_true_solutions = len(solutions)
+    if number_of_true_solutions is None: 
+        number_of_true_solutions = len(solutions)
         limit_true_solutions = False
 
     ax = plt.gca()
+    ax.set_aspect('equal', adjustable='box')
     #center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, colors="k")
     center = ax.tricontourf(x, y, maximal_confidence, levels=20, cmap="PuBu_r", antialiased=False)
     fig.colorbar(center, ax=ax)
 
-    for i in range(len(solutions) - numer_of_true_solutions, len(solutions), 1):
+    for i in range(len(solutions) - number_of_true_solutions, len(solutions), 1):
         plt.scatter(solutions[i][0][x_index], solutions[i][0][y_index], marker='x')
         if limit_true_solutions:
             plt.plot(solutions[i][:, x_index], solutions[i][:, y_index], linestyle=":", linewidth=1)
@@ -113,7 +115,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     convex_hull = data_container.get('convex_hull', None)
     if convex_hull is not None:
         plt.plot(*convex_hull, 'r--', linewidth=2)
-
+        
     target_file = data_container.get('target_file', None)
     if target_file is None:
         plt.show()
@@ -291,11 +293,11 @@ def makeCubePointsFromRanges(ranges, internal_steps=10):
     ranges_combination = [ranges[:,0] * t + (1. - t) * ranges[:,1] for t in t_values]
     return list(itertools.product(*zip(*ranges_combination)))
 
-def makeFinerMesh(points, linear_repeats):
+def makeFinerMesh(points, total_range_steps=10):
     bbox = boundingBoxNumpy(points)
     dimesnionality = len(bbox[0])
     ranges = [[bbox[0][index], bbox[1][index]] for index in range(dimesnionality)]
-    return makeCubePointsFromRanges(ranges, int(math.ceil(linear_repeats ** (1 / dimesnionality))))
+    return makeCubePointsFromRanges(ranges, total_range_steps)
 
 def normalize(points, ranges):
     singlepoint_normalise = lambda p: [(p[i] - ranges[i][0])/(ranges[i][1] - ranges[i][0]) for i in range(len(ranges))]
@@ -338,12 +340,13 @@ class SOODE_AC_Core:
             random_params_count = SOODE_params.get('SOODE_random_parameters_count', 5)
             temp = [random.uniform(-10, 10) for _ in range(random_params_count)]
         self.SOODE_parameters = temp
+        print(self.SOODE_parameters)
             
         temp = SOODE_params.get('initial_solutions_count', None)
         if not temp: 
             temp = 150    
         self.initial_solutions_count = int(temp)
-            
+        
         initial_region_ranges = SOODE_params.get('initial_region_ranges', None)
             
         temp = SOODE_params.get('classifier_type', None)
@@ -382,6 +385,12 @@ class SOODE_AC_Core:
             self.initial_region_ranges = [[-20,20]] * self.SOODE_dims
         else:
             self.initial_region_ranges = initial_region_ranges
+            
+        fine_mesh_steps = SOODE_params.get('fine_mesh_steps', 160)
+        if fine_mesh_steps is None: 
+            fine_mesh_steps = int(self.ml_linear_combinations_density ** (1. / self.SOODE_dims) + 1)
+        self.fine_mesh_steps = fine_mesh_steps
+
 
         drawing_ranges = [
             [drawing_params['xmin'], drawing_params['xmax']],
@@ -391,13 +400,13 @@ class SOODE_AC_Core:
         cube_points = makeCubePointsFromRanges(drawing_ranges)
         self.base_initial_cube_points = makeCubePointsFromRanges(self.initial_region_ranges)
         self.base_drawing_plane_points = np.array(makeFinerMesh(cube_points, 
-                                                                drawing_params.get('resolution', 25000)))
+                                                                drawing_params.get('resolution', 160)))
         self.drawing_params = drawing_params
         self.drawing_ranges = drawing_ranges
         self.drawing_counter = 0
             
-        self.solver_iterations = 250
-        self.T_bound = 1000
+        self.solver_iterations = SOODE_params.get('solver_iterations', 100)
+        self.T_bound = SOODE_params.get('t_bound', 100)
         self.solver_max_step = inf
         self.SOODE_solver = SOODE_solver
         self.SOODE_func = createFunc(self.SOODE_parameters, SOODE_kind)
@@ -488,7 +497,7 @@ class SOODE_AC_Core:
 
         colors = []
         for index, linear_combinations_of_proposed_points in enumerate(new_ml_state_points_by_regions):
-            mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, self.ml_linear_combinations_density)
+            mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, self.fine_mesh_steps)
             mesh_points_in_the_region = makeLinearCombinations(mesh_points_in_the_region, len(mesh_points_in_the_region))
             linear_combinations_of_proposed_points = np.append(linear_combinations_of_proposed_points, mesh_points_in_the_region, axis=0)
 
@@ -549,8 +558,9 @@ class SOODE_AC_Core:
 
         total_incorrect = (max_confidence < self.ml_accuracy_threshold).sum()
         total_size = np.prod(max_confidence.shape)
+        p_area = float(total_size - total_incorrect) / total_size
 
-        print(float(total_size - total_incorrect) / total_size)
+        print(f"PA: {p_area}, total solutions {self.true_solutions.shape[0]}")
         
         proposed_points_proj = self.prev_iteration_proposed_points[:, [x_index, y_index]]
         #hull = ConvexHull(proposed_points_proj)
@@ -567,7 +577,7 @@ class SOODE_AC_Core:
               })
         
 SOODE_AC_instance = SOODE_AC_Core(
-    SOODE_kind=None,
+    SOODE_kind='polynomial',
     SOODE_params={
         'classifier_params': {
             'k': 20,
@@ -575,9 +585,12 @@ SOODE_AC_instance = SOODE_AC_Core(
         },
         'accuracy_threshold': 1 - 1e-4,
         'initial_solutions_count': 300,
+        'fine_mesh_steps': None,
         'linear_combinations_density': 10000,
         'classifier_type': 'knn',
-        '__clustering_n': 24,
+        'solver_iterations': 100,
+        't_bound': 100,
+        '__clustering_n': 10,
         '__rk_paralelism': 12,
         'drawing_params': {
             'xmin': -20,
@@ -587,6 +600,7 @@ SOODE_AC_instance = SOODE_AC_Core(
             'x_index': 0,
             'y_index': 1,
             'epsilon': 5,
+            'resolution': 157,
             'draw_last': 0
         }
     })
