@@ -1,5 +1,6 @@
-from cmath import inf
+from cmath import inf, isinf
 import itertools
+import time
 import numpy as np
 import math
 import pylab as pl
@@ -22,7 +23,7 @@ from numpy.polynomial.polynomial import polyval, polyfromroots
 
 #from numba import njit
 matplotlib.use('Agg')
-#random.seed(42)
+random.seed(42)
 
 def f_regular(X, p):
     return np.array([
@@ -51,14 +52,25 @@ def createFunc(p, kind=None):
 
 def getSolution(rk, iters):
     line = [rk.y]
+
     for i in range(1, iters):
         res = None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             res = rk.step()
-        if res != None or rk.status != "running":
+        if res != None or \
+            np.isnan(rk.y).any() or \
+            rk.status != "running":
             break
+
         line.append(rk.y)
+
+        if np.isinf(rk.y).any(): 
+            break
+
+    if len(line) < iters: 
+        line += [line[-1]] * (iters - len(line))
+
     return line
 
 # is a primitive solution's embedding extractor
@@ -226,9 +238,9 @@ def makeSomeSolutions(rk_method,
                        T_bound, max_step=max_step)
 
         new_solution = getSolution(rk, rk_iterations)
-        if np.isnan(new_solution).any():
-            return None
-        return new_solution
+        return np.array(new_solution)
+
+    begin = time.time()
 
     if paralelism is None:
         for x_i in tqdm(proposed_points):
@@ -241,6 +253,10 @@ def makeSomeSolutions(rk_method,
                 (x_i, rk_method, function, T_bound, max_step, rk_iterations)
                     for x_i in proposed_points)
         solutions = [_ for _ in tqdm(generator)]
+    
+        
+    total = time.time() - begin
+    print(f"Elapsed time for solutions: {total} seconds")
 
     return solutions
 
@@ -376,16 +392,13 @@ class SOODE_AC_Core:
         self.base_initial_cube_points = makeCubePointsFromRanges(self.initial_region_ranges)
         self.base_drawing_plane_points = np.array(makeFinerMesh(cube_points, 
                                                                 drawing_params.get('resolution', 25000)))
-        #self.base_drawing_normalised_plane_points = \
-        #    normalize(self.base_drawing_plane_points, drawing_ranges)
         self.drawing_params = drawing_params
         self.drawing_ranges = drawing_ranges
         self.drawing_counter = 0
             
-        #self.linear_combinations_after_selection = SOODE_params['linear_combinations_after_selection']
-        self.solver_iterations = 25
-        self.T_bound = 100
-        self.solver_max_step = 1
+        self.solver_iterations = 250
+        self.T_bound = 1000
+        self.solver_max_step = inf
         self.SOODE_solver = SOODE_solver
         self.SOODE_func = createFunc(self.SOODE_parameters, SOODE_kind)
         
@@ -439,7 +452,8 @@ class SOODE_AC_Core:
         numpyfied_classes = np.argmax(classes, axis=1)
 
         if self.true_solutions is not None:
-            self.true_solutions = np.append(self.true_solutions, new_solutions, axis=0)
+            numpyfied_new_solutions = np.asarray(new_solutions)
+            self.true_solutions = np.append(self.true_solutions, numpyfied_new_solutions, axis=0)
             self.true_solutions_classes = np.append(self.true_solutions_classes, numpyfied_classes, axis=0)
         else:
             self.true_solutions = np.array(new_solutions)
@@ -453,16 +467,10 @@ class SOODE_AC_Core:
                                                  classifier_name=self.ml_classifier_type, 
                                                  params=self.ml_classifier_params)
         
-        #fig: Figure = plt.figure()
-        #self.prev_iteration_proposed_points = None
         if self.prev_iteration_proposed_points is None:
-            whole_region_points = self.base_initial_cube_points#makeFinerMesh(self.base_initial_cube_points, self.ml_linear_combinations_density)
+            whole_region_points = self.base_initial_cube_points
             new_ml_state_points_by_regions = [whole_region_points]
         else:
-            #new_near_proposed_points = makeFinerMesh(
-            #    #np.append(self.prev_iteration_proposed_points, self.preprev_iter_proposed_points, axis=0),
-            #    self.prev_iteration_proposed_points,
-            #    self.ml_linear_combinations_density)
 
             predicted_clusters = self.clustrizer.fit_predict(self.prev_iteration_proposed_points)
             
@@ -472,14 +480,11 @@ class SOODE_AC_Core:
             for array_index, cluster_index in enumerate(predicted_clusters):
                 new_ml_state_points_by_regions[cluster_index].append(
                     self.prev_iteration_proposed_points[array_index])
-            #self.preprev_iter_proposed_points = self.prev_iteration_proposed_points
-
-        #plt.savefig(fname=f'lcopps/clusters{self.drawing_counter}.png')
-        #plt.close('all')
         
         pool_of_lcopps = None
         
-        fig: Figure = plt.figure()
+        if self.enable_debug_plots:
+            fig: Figure = plt.figure()
 
         colors = []
         for index, linear_combinations_of_proposed_points in enumerate(new_ml_state_points_by_regions):
@@ -498,19 +503,17 @@ class SOODE_AC_Core:
                 pool_of_lcopps = filtered_lcopps
             
             colors += [index] * filtered_lcopps.shape[0]
-            
-        plt.scatter(pool_of_lcopps[:,0], 
-                    pool_of_lcopps[:,1],
-                    c=colors)
 
-        self.prev_iteration_proposed_points = pool_of_lcopps#pool_of_lcopps[(local_points_pool_classes < self.ml_accuracy_threshold).all(axis=1)]
-        #self.prev_iteration_proposed_points = self.prev_iteration_proposed_points
-        #np.array(makeLinearCombinations(self.prev_iteration_proposed_points, self.linear_combinations_after_selection))
+        self.prev_iteration_proposed_points = pool_of_lcopps
         
-        plt.savefig(fname=f'lcopps/lcopps{self.drawing_counter}.png')
-        plt.close('all')
+        if self.enable_debug_plots:
+            plt.scatter(pool_of_lcopps[:,0], 
+                        pool_of_lcopps[:,1],
+                        c=colors)
 
-        self.drawing_counter += 1
+            plt.savefig(fname=f'lcopps/lcopps{self.drawing_counter}.png')
+            plt.close('all')
+            self.drawing_counter += 1
 
     def drawCurrentState(self, plot_filename=None):
         if len(self.prev_iteration_proposed_points) == 0:
@@ -543,6 +546,11 @@ class SOODE_AC_Core:
         flattened_normalised_points_for_preview = normalize(flattened_points_for_preview, self.initial_region_ranges)
         probs = self.classifier.predict_proba(flattened_normalised_points_for_preview)
         colors, max_confidence  = classesProbabilitiesToSingularValues(probs)
+
+        total_incorrect = (max_confidence < self.ml_accuracy_threshold).sum()
+        total_size = np.prod(max_confidence.shape)
+
+        print(float(total_size - total_incorrect) / total_size)
         
         proposed_points_proj = self.prev_iteration_proposed_points[:, [x_index, y_index]]
         #hull = ConvexHull(proposed_points_proj)
@@ -559,15 +567,17 @@ class SOODE_AC_Core:
               })
         
 SOODE_AC_instance = SOODE_AC_Core(
-    SOODE_kind='polynomial',
+    SOODE_kind=None,
     SOODE_params={
         'classifier_params': {
             'k': 20,
-            'cores_count': -1
+            'cores_count': 12
         },
+        'accuracy_threshold': 1 - 1e-4,
         'initial_solutions_count': 300,
+        'linear_combinations_density': 10000,
         'classifier_type': 'knn',
-        '__clustering_n': 15,
+        '__clustering_n': 24,
         '__rk_paralelism': 12,
         'drawing_params': {
             'xmin': -20,
@@ -577,7 +587,7 @@ SOODE_AC_instance = SOODE_AC_Core(
             'x_index': 0,
             'y_index': 1,
             'epsilon': 5,
-            'draw_last': 150
+            'draw_last': 0
         }
     })
 
