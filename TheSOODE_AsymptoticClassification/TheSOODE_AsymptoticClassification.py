@@ -13,7 +13,6 @@ import seaborn as sns
 from tqdm import tqdm
 from matplotlib.figure import Figure
 from scipy.integrate import RK45, RK23, DOP853
-from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from scipy.spatial import ConvexHull
@@ -23,7 +22,7 @@ from numpy.polynomial.polynomial import polyval, polyfromroots
 
 #from numba import njit
 matplotlib.use('Agg')
-random.seed(42)
+#random.seed(42)
 
 def f_regular(X, p):
     return np.array([
@@ -221,8 +220,10 @@ def makeSomeSolutions(rk_method,
     if N:
         proposed_points = [[random.uniform(vals_range[i][0], vals_range[i][1]) for i in range(dims)] for _ in range(N)]
 
-    def exec(x_i, rk_method, function, T_bound, max_step, rk_iterations):
-        rk = rk_method(function, 0, np.array(x_i, dtype=np.float64), T_bound, max_step=max_step)
+    def getSingleSolutionWrap(x_i, rk_method, function, T_bound, 
+                              max_step, rk_iterations):
+        rk = rk_method(function, 0, np.array(x_i, dtype=np.float64),
+                       T_bound, max_step=max_step)
 
         new_solution = getSolution(rk, rk_iterations)
         if np.isnan(new_solution).any():
@@ -231,10 +232,14 @@ def makeSomeSolutions(rk_method,
 
     if paralelism is None:
         for x_i in tqdm(proposed_points):
-            solutions.append(exec(x_i, rk_method, function, T_bound, max_step, rk_iterations))
+            solutions.append(getSingleSolutionWrap(x_i, rk_method, 
+                                                   function, T_bound,
+                                                   max_step, rk_iterations))
     else: 
         generator = Parallel(n_jobs=paralelism)(
-            delayed(exec)(x_i, rk_method, function, T_bound, max_step, rk_iterations) for x_i in proposed_points)
+            delayed(getSingleSolutionWrap)
+                (x_i, rk_method, function, T_bound, max_step, rk_iterations)
+                    for x_i in proposed_points)
         solutions = [_ for _ in tqdm(generator)]
 
     return solutions
@@ -332,7 +337,7 @@ class SOODE_AC_Core:
             
         self.ml_classifier_params = SOODE_params.get('classifier_params', None)
         self.ml_linear_combinations_density = int(SOODE_params.get('linear_combinations_density', 10000))
-        self.ml_accuracy_threshold = float(SOODE_params.get('linear_combinations_density', 1.))
+        self.ml_accuracy_threshold = float(SOODE_params.get('accuracy_threshold', 1.))
         drawing_params = SOODE_params.get('drawing_params', {})
 
         if not SOODE_kind:
@@ -377,7 +382,7 @@ class SOODE_AC_Core:
         self.drawing_ranges = drawing_ranges
         self.drawing_counter = 0
             
-        self.linear_combinations_after_selection = SOODE_params['linear_combinations_after_selection']
+        #self.linear_combinations_after_selection = SOODE_params['linear_combinations_after_selection']
         self.solver_iterations = 25
         self.T_bound = 100
         self.solver_max_step = 1
@@ -386,6 +391,8 @@ class SOODE_AC_Core:
         
         self.true_solutions = None
         self.true_solutions_classes = None
+
+        self.enable_debug_plots = SOODE_params.get('enable_debug_plots', True)
 
         self.classifier = None
         self.classifer_params = self.ml_classifier_params
@@ -402,7 +409,7 @@ class SOODE_AC_Core:
 
         self.drawing_iter_data = None
 
-    def runOneIteration(self, ):
+    def runOneIteration(self):
         if self.prev_iteration_proposed_points is None:
             new_solutions = makeSomeSolutions(self.SOODE_solver,
                                               self.SOODE_func,
@@ -505,7 +512,7 @@ class SOODE_AC_Core:
 
         self.drawing_counter += 1
 
-    def drawCurrentState(self, save_to_file=None):
+    def drawCurrentState(self, plot_filename=None):
         if len(self.prev_iteration_proposed_points) == 0:
             return
 
@@ -538,7 +545,7 @@ class SOODE_AC_Core:
         colors, max_confidence  = classesProbabilitiesToSingularValues(probs)
         
         proposed_points_proj = self.prev_iteration_proposed_points[:, [x_index, y_index]]
-        hull = ConvexHull(proposed_points_proj)
+        #hull = ConvexHull(proposed_points_proj)
         
         drawSolutions(
               self.true_solutions,
@@ -548,19 +555,20 @@ class SOODE_AC_Core:
                   'm_conf': max_confidence,
                   'colors': colors,
                   #'convex_hull': (proposed_points_proj[hull.vertices,0], proposed_points_proj[hull.vertices,1]),
-                  'target_file': save_to_file
+                  'target_file': plot_filename
               })
         
 SOODE_AC_instance = SOODE_AC_Core(
-    SOODE_kind=None,
+    SOODE_kind='polynomial',
     SOODE_params={
         'classifier_params': {
             'k': 20,
             'cores_count': -1
         },
+        'initial_solutions_count': 300,
+        'classifier_type': 'knn',
         '__clustering_n': 15,
         '__rk_paralelism': 12,
-        'linear_combinations_after_selection': 100,
         'drawing_params': {
             'xmin': -20,
             'xmax': 20,
