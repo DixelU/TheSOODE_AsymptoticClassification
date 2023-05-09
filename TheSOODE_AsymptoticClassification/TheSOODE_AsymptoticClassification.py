@@ -1,4 +1,5 @@
-from cmath import inf, isinf
+from cmath import inf, isinf, nan
+import cmath
 import itertools
 import time
 import numpy as np
@@ -7,13 +8,14 @@ import pylab as pl
 import warnings
 import random
 import re
+import joblib
 import colorsys
 import matplotlib
 import seaborn as sns
 
 from tqdm import tqdm
 from matplotlib.figure import Figure
-from scipy.integrate import RK45, RK23, DOP853
+from scipy.integrate import RK45, RK23, DOP853, Radau
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from scipy.spatial import ConvexHull
@@ -84,6 +86,9 @@ def polarAngleExtractor(solutions):
 def drawSolutions(solutions, drawing_params=None, data_container=None):
     fig: Figure = plt.figure()
     #plt.figure(figsize=(10, 10))
+    
+    #plt.xscale('log')
+    #plt.yscale('log')
 
     plt.xlim(drawing_params['xmin'], drawing_params['xmax'])
     plt.ylim(drawing_params['ymin'], drawing_params['ymax'])
@@ -100,7 +105,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     if number_of_true_solutions is None: 
         number_of_true_solutions = len(solutions)
         limit_true_solutions = False
-
+        
     ax = plt.gca()
     ax.set_aspect('equal', adjustable='box')
     #center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, colors="k")
@@ -212,8 +217,21 @@ def GT_base2_classifier(solutions, parameters):
 def target_asymptotic_classifier(solutions, parameters):
     classes = []
     for solution in solutions:
-        solution_classes_embbedding = [False]
-        classes.append(solution_classes_embbedding)
+        nan_index = np.where(np.isnan(solution))
+        nan_index = nan_index[0][0]
+        first_half = solution[:nan_index]
+        second_half = solution[nan_index+1:]
+        
+        first_target_value = first_half[-1][1]
+        second_target_value = second_half[-1][1]
+        first_value_is_positive = first_target_value > 0
+        second_value_is_positive = second_target_value > 0
+        
+        ground_true_vector = [False] * 4
+        index = int(first_value_is_positive) + 2 * int(second_value_is_positive)
+        ground_true_vector[index] = True
+        
+        classes.append(ground_true_vector)
 
     return 'regular', classes
 
@@ -240,18 +258,31 @@ def makeSomeSolutions(rk_method,
                        T_bound, max_step=max_step)
 
         new_solution = getSolution(rk, rk_iterations)
-        return np.array(new_solution)
+        return new_solution
+
+    def getBiderectionalSolutionWrap(x_i, rk_method, function, T_bound, 
+                                     max_step, rk_iterations):
+        if not isinstance(T_bound, list):
+            return getSingleSolutionWrap\
+                (x_i, rk_method, function, T_bound, max_step, rk_iterations)
+
+        solutions = []
+        for bound_index, this_bound in enumerate(T_bound):
+            solutions += getSingleSolutionWrap(
+                x_i, rk_method, function, this_bound, max_step, rk_iterations)
+            if bound_index != len(T_bound) - 1:
+                solutions += [solutions[0] * nan]
+        return np.array(solutions)
 
     begin = time.time()
 
     if paralelism is None:
         for x_i in tqdm(proposed_points):
-            solutions.append(getSingleSolutionWrap(x_i, rk_method, 
-                                                   function, T_bound,
-                                                   max_step, rk_iterations))
+            solutions.append(getBiderectionalSolutionWrap(
+                x_i, rk_method, function, T_bound, max_step, rk_iterations))
     else: 
         generator = Parallel(n_jobs=paralelism)(
-            delayed(getSingleSolutionWrap)
+            delayed(getBiderectionalSolutionWrap)
                 (x_i, rk_method, function, T_bound, max_step, rk_iterations)
                     for x_i in proposed_points)
         solutions = [_ for _ in tqdm(generator)]
@@ -291,7 +322,13 @@ def makeCubePointsFromRanges(ranges, internal_steps=10):
     t_values = [float(i)/size for i in range(size + 1)]
     
     ranges_combination = [ranges[:,0] * t + (1. - t) * ranges[:,1] for t in t_values]
-    return list(itertools.product(*zip(*ranges_combination)))
+    unique_ranges_combination = np.unique(ranges_combination, axis=0)
+    unique_ranges_combination = [_ for _ in unique_ranges_combination]
+
+    points = list(itertools.product(*zip(*unique_ranges_combination)))
+    unique_points = np.unique(points, axis=0)
+
+    return [_ for _ in unique_points]
 
 def makeFinerMesh(points, total_range_steps=10):
     bbox = boundingBoxNumpy(points)
@@ -300,11 +337,21 @@ def makeFinerMesh(points, total_range_steps=10):
     return makeCubePointsFromRanges(ranges, total_range_steps)
 
 def normalize(points, ranges):
-    singlepoint_normalise = lambda p: [(p[i] - ranges[i][0])/(ranges[i][1] - ranges[i][0]) for i in range(len(ranges))]
+    def conditionalTransform(p, i, ranges):
+        if ranges[i][0] == ranges[i][1]:
+            return 0
+        return (p[i] - ranges[i][0])/(ranges[i][1] - ranges[i][0])
+
+    singlepoint_normalise = lambda p: [conditionalTransform(p, i, ranges) for i in range(len(ranges))]
     return np.array([singlepoint_normalise(pt) for pt in points])
 
 def denormalize(points, ranges):
-    singlepoint_normalise = lambda p: [p[i] * (ranges[i][1] - ranges[i][0]) + ranges[i][0] for i in range(len(ranges))]
+    def conditionalTransform(p, i, ranges):
+        if ranges[i][0] == ranges[i][1]:
+            return ranges[i][0]
+        return p[i] * (ranges[i][1] - ranges[i][0]) + ranges[i][0]
+
+    singlepoint_normalise = lambda p: [conditionalTransform(p, i, ranges) for i in range(len(ranges))]
     return np.array([singlepoint_normalise(pt) for pt in points])
 
 def classesProbabilitiesToSingularValues(class_probabilities):
@@ -358,6 +405,7 @@ class SOODE_AC_Core:
         self.ml_linear_combinations_density = int(SOODE_params.get('linear_combinations_density', 10000))
         self.ml_accuracy_threshold = float(SOODE_params.get('accuracy_threshold', 1.))
         drawing_params = SOODE_params.get('drawing_params', {})
+        T_bound = SOODE_params.get('t_bound', 100)
 
         if not SOODE_kind:
             self.SOODE_dims = 2
@@ -365,6 +413,7 @@ class SOODE_AC_Core:
             drawing_params['x_index'] = 0
             drawing_params['y_index'] = 1
             self.solution_classifier = lambda _1, _2, _3: GT_base1_classifier(_1, _2)
+            T_bound = [T_bound, -T_bound]
         elif SOODE_kind == 'polynomial':
             self.SOODE_dims = 2
             self.params_count = len(self.SOODE_parameters)
@@ -374,8 +423,9 @@ class SOODE_AC_Core:
         elif SOODE_kind == 'target':
             self.SOODE_dims = 3
             self.params_count = 1
-            SOODE_solver = DOP853
+            SOODE_solver = Radau
             self.solution_classifier = lambda _1, _2, _3: target_asymptotic_classifier(_1, _2)
+            T_bound = [T_bound, -T_bound]
         else:
             self.solution_classifier = solution_classifier
             None
@@ -406,7 +456,7 @@ class SOODE_AC_Core:
         self.drawing_counter = 0
             
         self.solver_iterations = SOODE_params.get('solver_iterations', 100)
-        self.T_bound = SOODE_params.get('t_bound', 100)
+        self.T_bound = T_bound
         self.solver_max_step = inf
         self.SOODE_solver = SOODE_solver
         self.SOODE_func = createFunc(self.SOODE_parameters, SOODE_kind)
@@ -438,6 +488,7 @@ class SOODE_AC_Core:
                                               T_bound=self.T_bound,
                                               max_step=self.solver_max_step,
                                               rk_iterations=self.solver_iterations,
+                                              paralelism=self.rk_paralelism,
                                               N=self.initial_solutions_count,
                                               dims=self.SOODE_dims,
                                               vals_range=self.initial_region_ranges)
@@ -514,6 +565,7 @@ class SOODE_AC_Core:
             colors += [index] * filtered_lcopps.shape[0]
 
         self.prev_iteration_proposed_points = pool_of_lcopps
+        print(f'Proposed points count: {len(self.prev_iteration_proposed_points)}')
         
         if self.enable_debug_plots:
             plt.scatter(pool_of_lcopps[:,0], 
@@ -577,26 +629,29 @@ class SOODE_AC_Core:
               })
         
 SOODE_AC_instance = SOODE_AC_Core(
-    SOODE_kind='polynomial',
+    SOODE_kind='target',
     SOODE_params={
         'classifier_params': {
             'k': 20,
             'cores_count': 12
         },
+        'initial_region_ranges': [[1e-2, 1e2], [1e-3, 1e1], [10, 10]],
+        'SOODE_parameters': [4],
         'accuracy_threshold': 1 - 1e-4,
         'initial_solutions_count': 300,
-        'fine_mesh_steps': None,
+        'fine_mesh_steps': 50,
         'linear_combinations_density': 10000,
         'classifier_type': 'knn',
-        'solver_iterations': 100,
-        't_bound': 100,
-        '__clustering_n': 10,
+        'solver_iterations': 500,
+        't_bound': 1e10,
+        '__clustering_n': 8,
         '__rk_paralelism': 12,
         'drawing_params': {
-            'xmin': -20,
-            'xmax': 20,
-            'ymin': -20,
-            'ymax': 20,
+            #'slice_coords': [3.],
+            'xmin': 1e-2,
+            'xmax': 1e2,
+            'ymin': 1e-3,
+            'ymax': 1e1,
             'x_index': 0,
             'y_index': 1,
             'epsilon': 5,
@@ -608,3 +663,6 @@ SOODE_AC_instance = SOODE_AC_Core(
 for i in range(100):
     SOODE_AC_instance.runOneIteration()
     SOODE_AC_instance.drawCurrentState(f"{i}_fig.png")
+
+    joblib.dump(SOODE_AC_instance.classifier, f'_nn_iter{i}.pkl')
+    #modelscorev2 = joblib.load('scoreregression.pkl' , mmap_mode ='r')
