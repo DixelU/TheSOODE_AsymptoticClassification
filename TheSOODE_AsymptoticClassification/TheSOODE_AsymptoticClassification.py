@@ -1,5 +1,6 @@
 from cmath import inf, isinf, nan
 import cmath
+from enum import unique
 import itertools
 import time
 import numpy as np
@@ -315,11 +316,12 @@ def makeLinearCombinations(points, repeats):
 def boundingBoxNumpy(points):
     return [np.min(points, axis=0), np.max(points, axis=0)]
 
-def makeCubePointsFromRanges(ranges, internal_steps=10):
+def makeCubePointsFromRanges(ranges, internal_steps=10, cube_transformer=None):
     ranges = np.array(ranges)
     
     size = internal_steps
     t_values = [float(i)/size for i in range(size + 1)]
+    #t_values = [x ** 0.75 for x in t_values]
     
     ranges_combination = [ranges[:,0] * t + (1. - t) * ranges[:,1] for t in t_values]
     unique_ranges_combination = np.unique(ranges_combination, axis=0)
@@ -327,14 +329,16 @@ def makeCubePointsFromRanges(ranges, internal_steps=10):
 
     points = list(itertools.product(*zip(*unique_ranges_combination)))
     unique_points = np.unique(points, axis=0)
+    if cube_transformer is not None:
+        unique_points = cube_transformer(unique_points)
 
     return [_ for _ in unique_points]
 
-def makeFinerMesh(points, total_range_steps=10):
+def makeFinerMesh(points, total_range_steps=10, cube_transformer=None):
     bbox = boundingBoxNumpy(points)
     dimesnionality = len(bbox[0])
     ranges = [[bbox[0][index], bbox[1][index]] for index in range(dimesnionality)]
-    return makeCubePointsFromRanges(ranges, total_range_steps)
+    return makeCubePointsFromRanges(ranges, total_range_steps, cube_transformer)
 
 def normalize(points, ranges):
     def conditionalTransform(p, i, ranges):
@@ -423,7 +427,7 @@ class SOODE_AC_Core:
         elif SOODE_kind == 'target':
             self.SOODE_dims = 3
             self.params_count = 1
-            SOODE_solver = Radau
+            SOODE_solver = RK45
             self.solution_classifier = lambda _1, _2, _3: target_asymptotic_classifier(_1, _2)
             T_bound = [T_bound, -T_bound]
         else:
@@ -441,16 +445,18 @@ class SOODE_AC_Core:
             fine_mesh_steps = int(self.ml_linear_combinations_density ** (1. / self.SOODE_dims) + 1)
         self.fine_mesh_steps = fine_mesh_steps
 
+        self.cube_transformer = None#lambda p: np.exp(p) * (2.3025850929940456840179914546844)
 
+        #drawing_cube_transformer = lambda p: np.exp(p) * (2.3025850929940456840179914546844)
         drawing_ranges = [
             [drawing_params['xmin'], drawing_params['xmax']],
             [drawing_params['ymin'], drawing_params['ymax']]    
         ]
-
-        cube_points = makeCubePointsFromRanges(drawing_ranges)
-        self.base_initial_cube_points = makeCubePointsFromRanges(self.initial_region_ranges)
-        self.base_drawing_plane_points = np.array(makeFinerMesh(cube_points, 
-                                                                drawing_params.get('resolution', 160)))
+        
+        self.base_initial_cube_points = makeCubePointsFromRanges(self.initial_region_ranges, cube_transformer=self.cube_transformer)
+        self.base_drawing_plane_points = np.exp(makeCubePointsFromRanges(np.log(drawing_ranges),
+                                                                         drawing_params.get('resolution', 160),
+                                                                         cube_transformer=self.cube_transformer))
         self.drawing_params = drawing_params
         self.drawing_ranges = drawing_ranges
         self.drawing_counter = 0
@@ -548,8 +554,8 @@ class SOODE_AC_Core:
 
         colors = []
         for index, linear_combinations_of_proposed_points in enumerate(new_ml_state_points_by_regions):
-            mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, self.fine_mesh_steps)
-            mesh_points_in_the_region = makeLinearCombinations(mesh_points_in_the_region, len(mesh_points_in_the_region))
+            mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, self.fine_mesh_steps, self.cube_transformer)
+            mesh_points_in_the_region = makeLinearCombinations(mesh_points_in_the_region, self.ml_linear_combinations_density)
             linear_combinations_of_proposed_points = np.append(linear_combinations_of_proposed_points, mesh_points_in_the_region, axis=0)
 
             normalised_lcopp = normalize(linear_combinations_of_proposed_points, self.initial_region_ranges)
@@ -635,19 +641,19 @@ SOODE_AC_instance = SOODE_AC_Core(
             'k': 20,
             'cores_count': 12
         },
-        'initial_region_ranges': [[1e-2, 1e2], [1e-3, 1e1], [10, 10]],
-        'SOODE_parameters': [4],
+        'initial_region_ranges': [[0, 20], [0, 20], [0, 20]],
+        'SOODE_parameters': [16],
         'accuracy_threshold': 1 - 1e-4,
         'initial_solutions_count': 300,
-        'fine_mesh_steps': 50,
-        'linear_combinations_density': 10000,
+        'fine_mesh_steps': 30,
+        'linear_combinations_density': 25000,
         'classifier_type': 'knn',
-        'solver_iterations': 500,
+        'solver_iterations': 100,
         't_bound': 1e10,
         '__clustering_n': 8,
-        '__rk_paralelism': 12,
+        '__rk_paralelism': 4,
         'drawing_params': {
-            #'slice_coords': [3.],
+            'slice_coords': [3.],
             'xmin': 1e-2,
             'xmax': 1e2,
             'ymin': 1e-3,
@@ -655,8 +661,8 @@ SOODE_AC_instance = SOODE_AC_Core(
             'x_index': 0,
             'y_index': 1,
             'epsilon': 5,
-            'resolution': 157,
-            'draw_last': 0
+            'draw_last': 0,
+            'resolution': 250
         }
     })
 
