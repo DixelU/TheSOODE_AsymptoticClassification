@@ -1,4 +1,4 @@
-from cmath import inf, isinf, nan
+from cmath import inf, isinf, nan, pi
 import cmath
 from enum import unique
 import itertools
@@ -44,6 +44,23 @@ def f_target(X, p):
         X[1] * X[2] * (X[0] ** 2 - 1.)
     ], dtype=np.float64)
 
+def f_pendulum_raw_0_it(X, p, index_begin): #will this work?
+    m = p[0]
+    l = p[1]
+    g = p[2]
+    sdml = 6. / (m * l ** 2)
+    nhmls = -0.5 * m * l ** 2
+    cosdiff = np.cos(X[0 + index_begin] - X[1 + index_begin])
+    sindiff = np.sin(X[0 + index_begin] - X[1 + index_begin])
+    td1 = sdml * (2 * X[2 + index_begin] - 3 * cosdiff * X[3 + index_begin]) / (16 - 9 * cosdiff ** 2)
+    td2 = sdml * (8 * X[3 + index_begin] - 3 * cosdiff * X[2 + index_begin]) / (16 - 9 * cosdiff ** 2)
+    ptd1 = nhmls * (td1 * td2 * sindiff + 3 * g * np.sin(X[0 + index_begin]) / l)
+    ptd2 = nhmls * (-td1 * td2 * sindiff + g * np.sin(X[1 + index_begin]) / l)
+    return np.array([ td1, td2, ptd1, ptd2 ], dtype=np.float64)
+
+def f_pendulum_double_system(X, p):
+    return np.append(f_pendulum_raw_0_it(X, p, 0), f_pendulum_raw_0_it(X, p, 4))
+
 def createFunc(p, kind=None):
     if not kind:
         return lambda t, y: f_regular(y, p) 
@@ -52,6 +69,8 @@ def createFunc(p, kind=None):
         return lambda t, y: f_polynomial(y, p)
     if kind == 'target':
         return lambda t, y: f_target(y, p)
+    if kind == 'pendulums':
+        return lambda t, y: f_pendulum_double_system(y, p)
 
 def getSolution(rk, iters):
     line = [rk.y]
@@ -97,6 +116,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     x = [_[0] for _ in data_container['points']]
     y = [_[1] for _ in data_container['points']]
     maximal_confidence = data_container['m_conf']
+    colors = data_container['colors']
     
     x_index = drawing_params['x_index']
     y_index = drawing_params['y_index']
@@ -112,7 +132,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     #center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, colors="k")
     center = ax.tricontourf(x, y, maximal_confidence, levels=20, cmap="PuBu_r", antialiased=False)
     fig.colorbar(center, ax=ax)
-
+    
     for i in range(len(solutions) - number_of_true_solutions, len(solutions), 1):
         plt.scatter(solutions[i][0][x_index], solutions[i][0][y_index], marker='x')
         if limit_true_solutions:
@@ -126,7 +146,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     if target_file is None:
         plt.show()
     else:
-        plt.savefig(fname=target_file)
+        plt.savefig(fname=target_file, dpi=500)
     plt.close('all')
 
 def GT_base1_classifier(solutions, parameters):
@@ -236,6 +256,14 @@ def target_asymptotic_classifier(solutions, parameters):
 
     return 'regular', classes
 
+def pendulums_asymptotic_classifier(solutions, parameters):
+    classes = []
+    for solution in solutions:
+        solution_divergence = solution[-1][:4] - solution[-1][4:]
+        is_stable = np.linalg.norm(solution_divergence) < parameters[3] * 10
+        classes.append([is_stable, not is_stable])
+    return 'regular', classes
+
 def makeSomeSolutions(rk_method,
                       function,
                       T_bound=None,
@@ -247,11 +275,14 @@ def makeSomeSolutions(rk_method,
 
                       N=None,
                       dims=None,
-                      vals_range=None):
+                      vals_range=None,
+                      cube_transformer=None):
     solutions = []
 
-    if N:
+    if N is not None:
         proposed_points = [[random.uniform(vals_range[i][0], vals_range[i][1]) for i in range(dims)] for _ in range(N)]
+        if proposed_points is not None:
+            proposed_points = cube_transformer(proposed_points)
 
     def getSingleSolutionWrap(x_i, rk_method, function, T_bound, 
                               max_step, rk_iterations):
@@ -320,22 +351,40 @@ def makeCubePointsFromRanges(ranges, internal_steps=10, cube_transformer=None):
     ranges = np.array(ranges)
     
     size = internal_steps
-    t_values = [float(i)/size for i in range(size + 1)]
+    t_values = [(float(i))/size for i in range(size + 1)]
     #t_values = [x ** 0.75 for x in t_values]
     
     ranges_combination = [ranges[:,0] * t + (1. - t) * ranges[:,1] for t in t_values]
     unique_ranges_combination = np.unique(ranges_combination, axis=0)
-    unique_ranges_combination = [_ for _ in unique_ranges_combination]
+    #unique_ranges_combination = [_ for _ in unique_ranges_combination]
 
-    points = list(itertools.product(*zip(*unique_ranges_combination)))
-    unique_points = np.unique(points, axis=0)
+    changing_indexes = []
+    aggregate_template_point = []
+    for i in range(len(ranges)):
+        column_doesnt_change = np.allclose(unique_ranges_combination[:,i], unique_ranges_combination[:,i][0])
+        if not column_doesnt_change:
+            changing_indexes.append(i)
+            aggregate_template_point.append(0.)
+        else: 
+            aggregate_template_point.append(unique_ranges_combination[0][i])
+    compressed_ranges_combination = unique_ranges_combination[:, changing_indexes]
+    points = np.array(list(itertools.product(*zip(*compressed_ranges_combination))))
+
+    unique_points = []
+    for p in points:
+        new_point = np.array(aggregate_template_point)
+        new_point[changing_indexes] = p
+        unique_points.append(new_point)
+
     if cube_transformer is not None:
         unique_points = cube_transformer(unique_points)
 
-    return [_ for _ in unique_points]
+    return unique_points
 
 def makeFinerMesh(points, total_range_steps=10, cube_transformer=None):
     bbox = boundingBoxNumpy(points)
+    bbox[0][4:]=0
+    bbox[1][4:]=0
     dimesnionality = len(bbox[0])
     ranges = [[bbox[0][index], bbox[1][index]] for index in range(dimesnionality)]
     return makeCubePointsFromRanges(ranges, total_range_steps, cube_transformer)
@@ -360,7 +409,9 @@ def denormalize(points, ranges):
 
 def classesProbabilitiesToSingularValues(class_probabilities):
     number_of_classes = len(class_probabilities[0])
-    hue_values = np.linspace(0, 1, number_of_classes)
+
+    hue_values = np.linspace(0, 1, number_of_classes + 1)
+    value_shift = 0.5 / (number_of_classes)
     colors = []
     max_probs = []
     
@@ -370,11 +421,12 @@ def classesProbabilitiesToSingularValues(class_probabilities):
         for i in range(len(normalised_probabilites)):
             current_color += \
                 np.array(colorsys.hsv_to_rgb(
-                    hue_values[i],
+                    hue_values[i] + value_shift,
                    normalised_probabilites[i], 1))\
                         * normalised_probabilites[i]
         colors.append(current_color) 
-        max_probs.append(np.max(normalised_probabilites))
+        #max_probs.append(np.max(normalised_probabilites))
+        max_probs.append(normalised_probabilites[0])
     return np.array(colors), np.array(max_probs)
 
 class SOODE_AC_Core:
@@ -394,7 +446,7 @@ class SOODE_AC_Core:
         print(self.SOODE_parameters)
             
         temp = SOODE_params.get('initial_solutions_count', None)
-        if not temp: 
+        if not temp:
             temp = 150    
         self.initial_solutions_count = int(temp)
         
@@ -411,6 +463,7 @@ class SOODE_AC_Core:
         drawing_params = SOODE_params.get('drawing_params', {})
         T_bound = SOODE_params.get('t_bound', 100)
 
+        initial_cube_transformer = None
         if not SOODE_kind:
             self.SOODE_dims = 2
             self.params_count = 4
@@ -430,33 +483,51 @@ class SOODE_AC_Core:
             SOODE_solver = RK45
             self.solution_classifier = lambda _1, _2, _3: target_asymptotic_classifier(_1, _2)
             T_bound = [T_bound, -T_bound]
+        elif SOODE_kind == 'pendulums':
+            self.SOODE_dims = 8
+            self.params_count = 4
+            SOODE_solver = DOP853
+            drawing_params['x_index'] = 0
+            drawing_params['y_index'] = 1
+            def init_cube_transf_func(c):
+                c = np.array(c)
+                eps = self.SOODE_parameters[3]
+                if c.shape[1] == 4:
+                    return np.append(c, c + [eps, eps, 0, 0], axis=1)
+                c[:,4] = c[:,0] + eps
+                c[:,5] = c[:,1] + eps
+                c[:,6] = c[:,2]
+                c[:,7] = c[:,3]
+                return c
+
+            initial_cube_transformer = init_cube_transf_func
+            self.solution_classifier = lambda _1, _2, _3: pendulums_asymptotic_classifier(_1, _2) 
         else:
             self.solution_classifier = solution_classifier
             None
             ### ... ?
 
         if not initial_region_ranges:
-            self.initial_region_ranges = [[-20,20]] * self.SOODE_dims
-        else:
-            self.initial_region_ranges = initial_region_ranges
+            initial_region_ranges = [[-20, 20]] * self.SOODE_dims
             
         fine_mesh_steps = SOODE_params.get('fine_mesh_steps', 160)
         if fine_mesh_steps is None: 
             fine_mesh_steps = int(self.ml_linear_combinations_density ** (1. / self.SOODE_dims) + 1)
         self.fine_mesh_steps = fine_mesh_steps
-
-        self.cube_transformer = None#lambda p: np.exp(p) * (2.3025850929940456840179914546844)
-
-        #drawing_cube_transformer = lambda p: np.exp(p) * (2.3025850929940456840179914546844)
+        
         drawing_ranges = [
             [drawing_params['xmin'], drawing_params['xmax']],
             [drawing_params['ymin'], drawing_params['ymax']]    
         ]
-        
-        self.base_initial_cube_points = makeCubePointsFromRanges(self.initial_region_ranges, cube_transformer=self.cube_transformer)
-        self.base_drawing_plane_points = np.exp(makeCubePointsFromRanges(np.log(drawing_ranges),
-                                                                         drawing_params.get('resolution', 160),
-                                                                         cube_transformer=self.cube_transformer))
+
+        self.cube_transformer = None
+        self.initial_cube_transformer = initial_cube_transformer
+        self.base_initial_cube_points = makeCubePointsFromRanges(initial_region_ranges, cube_transformer=initial_cube_transformer)
+        self.base_drawing_plane_points = np.array(
+            makeCubePointsFromRanges(drawing_ranges,
+                                     drawing_params.get('resolution', 160),
+                                     cube_transformer=self.cube_transformer))
+        self.initial_region_ranges = initial_region_ranges
         self.drawing_params = drawing_params
         self.drawing_ranges = drawing_ranges
         self.drawing_counter = 0
@@ -497,7 +568,8 @@ class SOODE_AC_Core:
                                               paralelism=self.rk_paralelism,
                                               N=self.initial_solutions_count,
                                               dims=self.SOODE_dims,
-                                              vals_range=self.initial_region_ranges)
+                                              vals_range=self.initial_region_ranges,
+                                              cube_transformer=self.initial_cube_transformer)
         else:
             new_solutions = makeSomeSolutions(self.SOODE_solver,
                                               self.SOODE_func,
@@ -554,7 +626,9 @@ class SOODE_AC_Core:
 
         colors = []
         for index, linear_combinations_of_proposed_points in enumerate(new_ml_state_points_by_regions):
-            mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, self.fine_mesh_steps, self.cube_transformer)
+            mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, 
+                                                      self.fine_mesh_steps, 
+                                                      self.initial_cube_transformer)
             mesh_points_in_the_region = makeLinearCombinations(mesh_points_in_the_region, self.ml_linear_combinations_density)
             linear_combinations_of_proposed_points = np.append(linear_combinations_of_proposed_points, mesh_points_in_the_region, axis=0)
 
@@ -584,7 +658,7 @@ class SOODE_AC_Core:
 
     def drawCurrentState(self, plot_filename=None):
         if len(self.prev_iteration_proposed_points) == 0:
-            return
+            raise Exception("That's all folks!")
 
         x_index = self.drawing_params['x_index']
         y_index = self.drawing_params['y_index']
@@ -635,29 +709,29 @@ class SOODE_AC_Core:
               })
         
 SOODE_AC_instance = SOODE_AC_Core(
-    SOODE_kind='target',
+    SOODE_kind='pendulums',
     SOODE_params={
         'classifier_params': {
             'k': 20,
             'cores_count': 12
         },
-        'initial_region_ranges': [[0, 20], [0, 20], [0, 20]],
-        'SOODE_parameters': [16],
+        'initial_region_ranges': [[-pi, pi], [-pi, pi], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+        'SOODE_parameters': [1, 1, 10, 0.001],
         'accuracy_threshold': 1 - 1e-4,
-        'initial_solutions_count': 300,
-        'fine_mesh_steps': 30,
-        'linear_combinations_density': 25000,
+        'initial_solutions_count': 5000,
+        'fine_mesh_steps': 40,
+        'linear_combinations_density': 1500,
         'classifier_type': 'knn',
-        'solver_iterations': 100,
+        'solver_iterations': 300,
         't_bound': 1e10,
-        '__clustering_n': 8,
-        '__rk_paralelism': 4,
+        '__clustering_n': 10,
+        '__rk_paralelism': 10,
         'drawing_params': {
-            'slice_coords': [3.],
-            'xmin': 1e-2,
-            'xmax': 1e2,
-            'ymin': 1e-3,
-            'ymax': 1e1,
+            'slice_coords': None,
+            'xmin': -pi,
+            'xmax': pi,
+            'ymin': -pi,
+            'ymax': pi,
             'x_index': 0,
             'y_index': 1,
             'epsilon': 5,
