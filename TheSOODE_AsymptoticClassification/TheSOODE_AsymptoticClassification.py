@@ -58,6 +58,25 @@ def f_pendulum_raw_0_it(X, p, index_begin): #will this work?
     ptd2 = nhmls * (-td1 * td2 * sindiff + g * np.sin(X[1 + index_begin]) / l)
     return np.array([ td1, td2, ptd1, ptd2 ], dtype=np.float64)
 
+def f_two_phase_fluid_in_pipe(X, p):
+    v = X[0]
+    theta = X[1]
+    m = X[2]
+    
+    gamma = p[0]
+    kappa = p[1]
+    s = p[2]
+    alpha = p[3]
+    #k = p[4]
+    
+    F1 = (theta - 1) * (v ** 2) - theta * (v - 1) * (gamma * m * (v - 1) + m + (v ** 2) * (m - 1) / kappa) * alpha
+    F2 = - (theta - 1) * (v ** 2) * (gamma * m - 1 + s * theta * (m - 1) / kappa) + theta * (gamma - 1) * m * (v - 1) * (gamma * m * (v - 1) + 1) * alpha
+    F3 = (theta - 1) * (v ** 2) * (gamma * m + 1) - m * gamma * (v - 1) * ((gamma - 1) * (gamma * m + 1) * (v - 1) + (gamma + 1) * v) * alpha
+    
+    return np.array([v * F1, theta * F2, m * F3], dtype=np.float64)
+
+
+
 def f_pendulum_double_system(X, p):
     return np.append(f_pendulum_raw_0_it(X, p, 0), f_pendulum_raw_0_it(X, p, 4))
 
@@ -71,6 +90,8 @@ def createFunc(p, kind=None):
         return lambda t, y: f_target(y, p)
     if kind == 'pendulums':
         return lambda t, y: f_pendulum_double_system(y, p)
+    if kind == '2ph_fluid':
+        return lambda t, y: f_two_phase_fluid_in_pipe(y, p)
 
 def getSolution(rk, iters):
     line = [rk.y]
@@ -259,9 +280,89 @@ def target_asymptotic_classifier(solutions, parameters):
 def pendulums_asymptotic_classifier(solutions, parameters):
     classes = []
     for solution in solutions:
-        solution_divergence = solution[-1][:4] - solution[-1][4:]
-        is_stable = np.linalg.norm(solution_divergence) < parameters[3] * 10
+        #solution_divergence = solution[-1][:4] - solution[-1][4:]
+        is_stable = np.max(np.abs(solution[-1][:2])) <= pi
         classes.append([is_stable, not is_stable])
+    return 'regular', classes
+
+def two_phase_fluid_classifier(solutions, parameters):
+    classes = []
+    
+    gamma = parameters[0]
+    kappa = parameters[1]
+    s = parameters[2]
+    alpha = parameters[3]
+    k = parameters[4]
+    
+    vstar_1 = (gamma ** 2) * ((k + 1) * alpha - s * 0.5) - alpha * gamma * kappa * 0.5 - alpha + s * 0.5
+    vstar_2 = (gamma ** 2) * ((k + 1) * alpha - s * 0.5) - alpha * 0.5 + gamma * (alpha * 0.5 - k - s * 0.5)
+    vstar = vstar_1 / vstar_2
+    cap_gamma = (gamma - 1) / gamma
+    
+    the_omgsobig_value = 5
+    
+    closeness_epsilon = 1e-5
+    def relative_epsilon__(x, base_epsilon):
+        return math.sqrt(1 + x ** 2) * base_epsilon
+    def relative_epsilon(x):
+        return relative_epsilon__(x, closeness_epsilon)
+    
+    def are_close(a, b):
+        difference = abs(a - b)
+        a_epsilon = relative_epsilon(a)
+        b_epsilon = relative_epsilon(b)
+        return difference < min(a_epsilon, b_epsilon)
+
+    for solution in solutions:
+        nan_index = np.where(np.isnan(solution))
+        nan_index = nan_index[0][0]
+        positive_half = solution[:nan_index]
+        negative_half = solution[nan_index+1:]
+        
+        positive_v = positive_half[-1][0]
+        negative_v = negative_half[-1][0]
+        
+        positive_theta = positive_half[-1][1]
+        negative_theta = negative_half[-1][1]
+        
+        positive_m = positive_half[-1][2]
+        negative_m = negative_half[-1][2]
+
+        # positive part
+        theta_expr1 = positive_v ** 2 / ( (positive_v ** 2) - alpha * gamma * (positive_v - 1) * (positive_v - cap_gamma) )
+
+        p_1 = (positive_v ** 2) + (positive_m ** 2) + (positive_theta ** 2) < (closeness_epsilon ** 2)
+        p_2 = are_close(1, positive_v) and are_close(1, positive_theta) and m > 1
+        p_3 = are_close(1, positive_m) and \
+              are_close(theta_expr1, positive_theta) and \
+              (1 < positive_v and positive_v < vstar)
+        p_4 = positive_v > the_omgsobig_value or \
+            positive_theta > the_omgsobig_value or \
+            positive_m > the_omgsobig_value
+        
+        # negative part
+        m_1_expr = ((s / kappa) + 1) / (k + 1) * ((s / k) + gamma)
+        
+        n_1 = are_close(negative_v, 1) and \
+            are_close(negative_theta, 1) and \
+            negative_m < m_1_expr
+        n_2 = negative_v > the_omgsobig_value or \
+            negative_theta > the_omgsobig_value or \
+            negative_m > the_omgsobig_value
+
+        ground_true_vector = [
+            p_1 and n_1 ,
+            p_2 and n_1 ,
+            p_3 and n_1 ,
+            p_4 and n_1 ,
+            p_1 and n_2 ,
+            p_2 and n_2 ,
+            p_3 and n_2 ,
+            p_4 and n_2
+            ]
+        
+        classes.append(ground_true_vector)
+
     return 'regular', classes
 
 def makeSomeSolutions(rk_method,
@@ -502,6 +603,14 @@ class SOODE_AC_Core:
 
             initial_cube_transformer = init_cube_transf_func
             self.solution_classifier = lambda _1, _2, _3: pendulums_asymptotic_classifier(_1, _2) 
+        elif SOODE_kind == '2ph_fluid':
+            self.SOODE_dims = 3
+            self.params_count = 5
+            SOODE_solver = RK45
+            drawing_params['x_index'] = 0
+            drawing_params['y_index'] = 1
+            self.solution_classifier = lambda _1, _2, _3: target_asymptotic_classifier(_1, _2)
+            T_bound = [T_bound, -T_bound]
         else:
             self.solution_classifier = solution_classifier
             None
@@ -716,13 +825,13 @@ SOODE_AC_instance = SOODE_AC_Core(
             'cores_count': 12
         },
         'initial_region_ranges': [[-pi, pi], [-pi, pi], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
-        'SOODE_parameters': [1, 1, 10, 0.001],
+        'SOODE_parameters': [1, 1, 10, 0.0001],
         'accuracy_threshold': 1 - 1e-4,
-        'initial_solutions_count': 5000,
+        'initial_solutions_count': 300,
         'fine_mesh_steps': 40,
         'linear_combinations_density': 1500,
         'classifier_type': 'knn',
-        'solver_iterations': 300,
+        'solver_iterations': 333,
         't_bound': 1e10,
         '__clustering_n': 10,
         '__rk_paralelism': 10,
@@ -736,7 +845,7 @@ SOODE_AC_instance = SOODE_AC_Core(
             'y_index': 1,
             'epsilon': 5,
             'draw_last': 0,
-            'resolution': 250
+            'resolution': 500
         }
     })
 
