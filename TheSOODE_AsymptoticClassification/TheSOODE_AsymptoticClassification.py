@@ -126,10 +126,6 @@ def polarAngleExtractor(solutions):
 # bg = (points, colors)
 def drawSolutions(solutions, drawing_params=None, data_container=None):
     fig: Figure = plt.figure()
-    #plt.figure(figsize=(10, 10))
-    
-    #plt.xscale('log')
-    #plt.yscale('log')
 
     plt.xlim(drawing_params['xmin'], drawing_params['xmax'])
     plt.ylim(drawing_params['ymin'], drawing_params['ymax'])
@@ -332,7 +328,7 @@ def two_phase_fluid_classifier(solutions, parameters):
         theta_expr1 = positive_v ** 2 / ( (positive_v ** 2) - alpha * gamma * (positive_v - 1) * (positive_v - cap_gamma) )
 
         p_1 = (positive_v ** 2) + (positive_m ** 2) + (positive_theta ** 2) < (closeness_epsilon ** 2)
-        p_2 = are_close(1, positive_v) and are_close(1, positive_theta) and m > 1
+        p_2 = are_close(1, positive_v) and are_close(1, positive_theta) and positive_m > 1
         p_3 = are_close(1, positive_m) and \
               are_close(theta_expr1, positive_theta) and \
               (1 < positive_v and positive_v < vstar)
@@ -526,8 +522,8 @@ def classesProbabilitiesToSingularValues(class_probabilities):
                    normalised_probabilites[i], 1))\
                         * normalised_probabilites[i]
         colors.append(current_color) 
-        #max_probs.append(np.max(normalised_probabilites))
-        max_probs.append(normalised_probabilites[0])
+        max_probs.append(np.max(normalised_probabilites))
+        #max_probs.append(normalised_probabilites[0])
     return np.array(colors), np.array(max_probs)
 
 class SOODE_AC_Core:
@@ -609,7 +605,7 @@ class SOODE_AC_Core:
             SOODE_solver = RK45
             drawing_params['x_index'] = 0
             drawing_params['y_index'] = 1
-            self.solution_classifier = lambda _1, _2, _3: target_asymptotic_classifier(_1, _2)
+            self.solution_classifier = lambda _1, _2, _3: two_phase_fluid_classifier(_1, _2)
             T_bound = [T_bound, -T_bound]
         else:
             self.solution_classifier = solution_classifier
@@ -630,7 +626,7 @@ class SOODE_AC_Core:
         ]
 
         self.cube_transformer = None
-        self.initial_cube_transformer = initial_cube_transformer
+        self.initial_cube_transformer = initial_cube_transformer or (lambda x: x)
         self.base_initial_cube_points = makeCubePointsFromRanges(initial_region_ranges, cube_transformer=initial_cube_transformer)
         self.base_drawing_plane_points = np.array(
             makeCubePointsFromRanges(drawing_ranges,
@@ -818,16 +814,16 @@ class SOODE_AC_Core:
               })
         
 SOODE_AC_instance = SOODE_AC_Core(
-    SOODE_kind='pendulums',
+    SOODE_kind='2ph_fluid',
     SOODE_params={
         'classifier_params': {
             'k': 20,
             'cores_count': 12
         },
-        'initial_region_ranges': [[-pi, pi], [-pi, pi], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
-        'SOODE_parameters': [1, 1, 10, 0.0001],
+        'initial_region_ranges': [[0.95, 1.05], [0.95, 1.05], [0.95, 1.05]],
+        'SOODE_parameters': [1.6, 1, 0.25, 0.1, 1],
         'accuracy_threshold': 1 - 1e-4,
-        'initial_solutions_count': 300,
+        'initial_solutions_count': 1300,
         'fine_mesh_steps': 40,
         'linear_combinations_density': 1500,
         'classifier_type': 'knn',
@@ -836,14 +832,13 @@ SOODE_AC_instance = SOODE_AC_Core(
         '__clustering_n': 10,
         '__rk_paralelism': 10,
         'drawing_params': {
-            'slice_coords': None,
-            'xmin': -pi,
-            'xmax': pi,
-            'ymin': -pi,
-            'ymax': pi,
+            'slice_coords': [0.99],
+            'xmin': 0.95,
+            'xmax': 1.05,
+            'ymin': 0.95,
+            'ymax': 1.05,
             'x_index': 0,
             'y_index': 1,
-            'epsilon': 5,
             'draw_last': 0,
             'resolution': 500
         }
