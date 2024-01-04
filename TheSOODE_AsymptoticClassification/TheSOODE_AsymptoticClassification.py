@@ -62,17 +62,16 @@ def f_two_phase_fluid_in_pipe(X, p):
     v = X[0]
     theta = X[1]
     m = X[2]
-    
+
     gamma = p[0]
     kappa = p[1]
     s = p[2]
     alpha = p[3]
-    #k = p[4]
-    
+
     F1 = (theta - 1) * (v ** 2) - theta * (v - 1) * (gamma * m * (v - 1) + m + (v ** 2) * (m - 1) / kappa) * alpha
     F2 = - (theta - 1) * (v ** 2) * (gamma * m - 1 + s * theta * (m - 1) / kappa) + theta * (gamma - 1) * m * (v - 1) * (gamma * m * (v - 1) + 1) * alpha
     F3 = (theta - 1) * (v ** 2) * (gamma * m + 1) - m * gamma * (v - 1) * ((gamma - 1) * (gamma * m + 1) * (v - 1) + (gamma + 1) * v) * alpha
-    
+
     return np.array([v * F1, theta * F2, m * F3], dtype=np.float64)
 
 
@@ -82,7 +81,7 @@ def f_pendulum_double_system(X, p):
 
 def createFunc(p, kind=None):
     if not kind:
-        return lambda t, y: f_regular(y, p) 
+        return lambda t, y: f_regular(y, p)
     if kind == 'polynomial':
         p = polyfromroots(p)
         return lambda t, y: f_polynomial(y, p)
@@ -108,10 +107,10 @@ def getSolution(rk, iters):
 
         line.append(rk.y)
 
-        if np.isinf(rk.y).any(): 
+        if np.isinf(rk.y).any():
             break
 
-    if len(line) < iters: 
+    if len(line) < iters:
         line += [line[-1]] * (iters - len(line))
 
     return line
@@ -119,7 +118,7 @@ def getSolution(rk, iters):
 # is a primitive solution's embedding extractor
 def polarAngleExtractor(solutions):
     last_points = solutions[:, -1]
-    complex_array = last_points[:, 0] + 1j * last_points[:, 1] 
+    complex_array = last_points[:, 0] + 1j * last_points[:, 1]
     return np.angle(complex_array)
 
 # takes an array of 2xN arrays (paths)
@@ -129,27 +128,28 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
 
     plt.xlim(drawing_params['xmin'], drawing_params['xmax'])
     plt.ylim(drawing_params['ymin'], drawing_params['ymax'])
-    
+
     x = [_[0] for _ in data_container['points']]
     y = [_[1] for _ in data_container['points']]
     maximal_confidence = data_container['m_conf']
     colors = data_container['colors']
-    
+
     x_index = drawing_params['x_index']
     y_index = drawing_params['y_index']
 
     number_of_true_solutions = drawing_params.get('draw_last', 100)
     limit_true_solutions = True
-    if number_of_true_solutions is None: 
+    if number_of_true_solutions is None:
         number_of_true_solutions = len(solutions)
         limit_true_solutions = False
-        
+
     ax = plt.gca()
     ax.set_aspect('equal', adjustable='box')
     #center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, colors="k")
-    center = ax.tricontourf(x, y, maximal_confidence, levels=20, cmap="PuBu_r", antialiased=False)
-    fig.colorbar(center, ax=ax)
-    
+    #center = ax.tricontourf(x, y, maximal_confidence, levels=20, cmap="PuBu_r", antialiased=False)
+    #fig.colorbar(center, ax=ax)
+    plt.scatter(x, y, c=colors, marker='x')
+
     for i in range(len(solutions) - number_of_true_solutions, len(solutions), 1):
         plt.scatter(solutions[i][0][x_index], solutions[i][0][y_index], marker='x')
         if limit_true_solutions:
@@ -158,7 +158,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     convex_hull = data_container.get('convex_hull', None)
     if convex_hull is not None:
         plt.plot(*convex_hull, 'r--', linewidth=2)
-        
+
     target_file = data_container.get('target_file', None)
     if target_file is None:
         plt.show()
@@ -212,23 +212,23 @@ def GT_base1_classifier(solutions, parameters):
 
     for solution in solutions:
         x0 = solution[0][0]
-        y0 = solution[1][1] 
+        y0 = solution[1][1]
 
         angle0 = (np.angle(x0 + 1j*y0) + 2 * math.pi) % (math.pi * 2)
         angle1 = (np.angle(x1 + 1j*y1) + 2 * math.pi) % (math.pi * 2)
         angle2 = (np.angle(x2 + 1j*y2) + 2 * math.pi) % (math.pi * 2)
 
-        angle1_0 = angle1 % math.pi 
+        angle1_0 = angle1 % math.pi
         angle1_1 = angle1_0 + math.pi
         angle2_0 = angle2 % math.pi
         angle2_1 = angle2_0 + math.pi
 
         if angle1_0 > angle2_0:
-            angle1_0, angle1_1, angle2_0, angle2_1 = angle2_0, angle2_1, angle1_0, angle1_1  
+            angle1_0, angle1_1, angle2_0, angle2_1 = angle2_0, angle2_1, angle1_0, angle1_1
 
-        zone00 = angle1_0 < angle0 and angle0 <= angle2_0 
+        zone00 = angle1_0 < angle0 and angle0 <= angle2_0
         zone01 = angle2_0 < angle0 and angle0 <= angle1_1
-        zone10 = angle1_1 < angle0 and angle0 <= angle2_1 
+        zone10 = angle1_1 < angle0 and angle0 <= angle2_1
         zone11 = (angle2_1 < angle0 and angle0 <= 2*math.pi) or angle0 < angle1_0
 
         classes.append((zone00, zone01, zone10, zone11))
@@ -240,10 +240,10 @@ def GT_base2_classifier(solutions, parameters):
     parameters.sort()
     interval_points = [float('-inf')] + parameters + [float('inf')]
     for solution in solutions:
-        
+
         solution_classes_embbedding = [False] * len(interval_points)
         x0 = solution[0][0]
-        
+
         is_bigger = lambda v, target: v > target
         value_index = next(i for i, v in enumerate(interval_points) if is_bigger(v, x0))
         solution_classes_embbedding[value_index] = True
@@ -259,16 +259,16 @@ def target_asymptotic_classifier(solutions, parameters):
         nan_index = nan_index[0][0]
         first_half = solution[:nan_index]
         second_half = solution[nan_index+1:]
-        
+
         first_target_value = first_half[-1][1]
         second_target_value = second_half[-1][1]
         first_value_is_positive = first_target_value > 0
         second_value_is_positive = second_target_value > 0
-        
+
         ground_true_vector = [False] * 4
         index = int(first_value_is_positive) + 2 * int(second_value_is_positive)
         ground_true_vector[index] = True
-        
+
         classes.append(ground_true_vector)
 
     return 'regular', classes
@@ -283,26 +283,25 @@ def pendulums_asymptotic_classifier(solutions, parameters):
 
 def two_phase_fluid_classifier(solutions, parameters):
     classes = []
-    
+
     gamma = parameters[0]
     kappa = parameters[1]
     s = parameters[2]
     alpha = parameters[3]
-    k = parameters[4]
-    
-    vstar_1 = (gamma ** 2) * ((k + 1) * alpha - s * 0.5) - alpha * gamma * kappa * 0.5 - alpha + s * 0.5
-    vstar_2 = (gamma ** 2) * ((k + 1) * alpha - s * 0.5) - alpha * 0.5 + gamma * (alpha * 0.5 - k - s * 0.5)
+
+    vstar_1 = (gamma ** 2) * ((kappa + 1) * alpha - s * 0.5) - alpha * gamma * kappa * 0.5 - alpha + s * 0.5
+    vstar_2 = (gamma ** 2) * ((kappa + 1) * alpha - s * 0.5) - alpha * 0.5 + gamma * (alpha * 0.5 - kappa - s * 0.5)
     vstar = vstar_1 / vstar_2
     cap_gamma = (gamma - 1) / gamma
-    
+
     the_omgsobig_value = 5
-    
-    closeness_epsilon = 1e-5
+
+    closeness_epsilon = 1e-3
     def relative_epsilon__(x, base_epsilon):
         return math.sqrt(1 + x ** 2) * base_epsilon
     def relative_epsilon(x):
         return relative_epsilon__(x, closeness_epsilon)
-    
+
     def are_close(a, b):
         difference = abs(a - b)
         a_epsilon = relative_epsilon(a)
@@ -314,13 +313,13 @@ def two_phase_fluid_classifier(solutions, parameters):
         nan_index = nan_index[0][0]
         positive_half = solution[:nan_index]
         negative_half = solution[nan_index+1:]
-        
+
         positive_v = positive_half[-1][0]
         negative_v = negative_half[-1][0]
-        
+
         positive_theta = positive_half[-1][1]
         negative_theta = negative_half[-1][1]
-        
+
         positive_m = positive_half[-1][2]
         negative_m = negative_half[-1][2]
 
@@ -335,10 +334,10 @@ def two_phase_fluid_classifier(solutions, parameters):
         p_4 = positive_v > the_omgsobig_value or \
             positive_theta > the_omgsobig_value or \
             positive_m > the_omgsobig_value
-        
+
         # negative part
-        m_1_expr = ((s / kappa) + 1) / (k + 1) * ((s / k) + gamma)
-        
+        m_1_expr = ((s / kappa) + 1) / (kappa + 1) * ((s / kappa) + gamma)
+
         n_1 = are_close(negative_v, 1) and \
             are_close(negative_theta, 1) and \
             negative_m < m_1_expr
@@ -357,6 +356,9 @@ def two_phase_fluid_classifier(solutions, parameters):
             p_4 and n_2
             ]
         
+        if np.max(ground_true_vector) == 0:
+            print([positive_v, negative_v, positive_m, negative_m, positive_theta, negative_theta])
+
         classes.append(ground_true_vector)
 
     return 'regular', classes
@@ -381,7 +383,7 @@ def makeSomeSolutions(rk_method,
         if proposed_points is not None:
             proposed_points = cube_transformer(proposed_points)
 
-    def getSingleSolutionWrap(x_i, rk_method, function, T_bound, 
+    def getSingleSolutionWrap(x_i, rk_method, function, T_bound,
                               max_step, rk_iterations):
         rk = rk_method(function, 0, np.array(x_i, dtype=np.float64),
                        T_bound, max_step=max_step)
@@ -389,7 +391,7 @@ def makeSomeSolutions(rk_method,
         new_solution = getSolution(rk, rk_iterations)
         return new_solution
 
-    def getBiderectionalSolutionWrap(x_i, rk_method, function, T_bound, 
+    def getBiderectionalSolutionWrap(x_i, rk_method, function, T_bound,
                                      max_step, rk_iterations):
         if not isinstance(T_bound, list):
             return getSingleSolutionWrap\
@@ -409,14 +411,14 @@ def makeSomeSolutions(rk_method,
         for x_i in tqdm(proposed_points):
             solutions.append(getBiderectionalSolutionWrap(
                 x_i, rk_method, function, T_bound, max_step, rk_iterations))
-    else: 
+    else:
         generator = Parallel(n_jobs=paralelism)(
             delayed(getBiderectionalSolutionWrap)
                 (x_i, rk_method, function, T_bound, max_step, rk_iterations)
                     for x_i in proposed_points)
         solutions = [_ for _ in tqdm(generator)]
-    
-        
+
+
     total = time.time() - begin
     print(f"Elapsed time for solutions: {total} seconds")
 
@@ -446,11 +448,11 @@ def boundingBoxNumpy(points):
 
 def makeCubePointsFromRanges(ranges, internal_steps=10, cube_transformer=None):
     ranges = np.array(ranges)
-    
+
     size = internal_steps
     t_values = [(float(i))/size for i in range(size + 1)]
     #t_values = [x ** 0.75 for x in t_values]
-    
+
     ranges_combination = [ranges[:,0] * t + (1. - t) * ranges[:,1] for t in t_values]
     unique_ranges_combination = np.unique(ranges_combination, axis=0)
     #unique_ranges_combination = [_ for _ in unique_ranges_combination]
@@ -462,7 +464,7 @@ def makeCubePointsFromRanges(ranges, internal_steps=10, cube_transformer=None):
         if not column_doesnt_change:
             changing_indexes.append(i)
             aggregate_template_point.append(0.)
-        else: 
+        else:
             aggregate_template_point.append(unique_ranges_combination[0][i])
     compressed_ranges_combination = unique_ranges_combination[:, changing_indexes]
     points = np.array(list(itertools.product(*zip(*compressed_ranges_combination))))
@@ -511,7 +513,7 @@ def classesProbabilitiesToSingularValues(class_probabilities):
     value_shift = 0.5 / (number_of_classes)
     colors = []
     max_probs = []
-    
+
     for single_element in class_probabilities:
         normalised_probabilites = single_element / np.sum(single_element)
         current_color = np.array([0,0,0], dtype=np.float64)
@@ -519,12 +521,22 @@ def classesProbabilitiesToSingularValues(class_probabilities):
             current_color += \
                 np.array(colorsys.hsv_to_rgb(
                     hue_values[i] + value_shift,
-                   normalised_probabilites[i], 1))\
-                        * normalised_probabilites[i]
-        colors.append(current_color) 
-        max_probs.append(np.max(normalised_probabilites))
+                    1 - 0.75 * (normalised_probabilites[i] ** 2),
+                    normalised_probabilites[i] ** .5)) * normalised_probabilites[i]
+        
+        max_prob = np.max(normalised_probabilites)
+
+        colors.append(current_color)
+        max_probs.append(max_prob)
         #max_probs.append(normalised_probabilites[0])
     return np.array(colors), np.array(max_probs)
+
+class CMeansWrapper:
+    def __init__(self, points_count, params={}):
+        None
+
+    def fit_predict(self, points):
+        None
 
 class SOODE_AC_Core:
     def __init__(self, SOODE_kind=None, SOODE_params={}):
@@ -534,26 +546,26 @@ class SOODE_AC_Core:
         self.solution_embedding_extractor = \
             lambda x: np.array(x)[:,0]
         SOODE_solver = RK23
-        
+
         temp = SOODE_params.get('SOODE_parameters', None)
-        if not temp: 
+        if not temp:
             random_params_count = SOODE_params.get('SOODE_random_parameters_count', 5)
             temp = [random.uniform(-10, 10) for _ in range(random_params_count)]
         self.SOODE_parameters = temp
         print(self.SOODE_parameters)
-            
+
         temp = SOODE_params.get('initial_solutions_count', None)
         if not temp:
-            temp = 150    
+            temp = 150
         self.initial_solutions_count = int(temp)
-        
+
         initial_region_ranges = SOODE_params.get('initial_region_ranges', None)
-            
+
         temp = SOODE_params.get('classifier_type', None)
-        if not temp: 
-            temp = 'knn' 
+        if not temp:
+            temp = 'knn'
         self.ml_classifier_type = temp
-            
+
         self.ml_classifier_params = SOODE_params.get('classifier_params', None)
         self.ml_linear_combinations_density = int(SOODE_params.get('linear_combinations_density', 10000))
         self.ml_accuracy_threshold = float(SOODE_params.get('accuracy_threshold', 1.))
@@ -598,10 +610,10 @@ class SOODE_AC_Core:
                 return c
 
             initial_cube_transformer = init_cube_transf_func
-            self.solution_classifier = lambda _1, _2, _3: pendulums_asymptotic_classifier(_1, _2) 
+            self.solution_classifier = lambda _1, _2, _3: pendulums_asymptotic_classifier(_1, _2)
         elif SOODE_kind == '2ph_fluid':
             self.SOODE_dims = 3
-            self.params_count = 5
+            self.params_count = 4
             SOODE_solver = RK45
             drawing_params['x_index'] = 0
             drawing_params['y_index'] = 1
@@ -614,15 +626,15 @@ class SOODE_AC_Core:
 
         if not initial_region_ranges:
             initial_region_ranges = [[-20, 20]] * self.SOODE_dims
-            
+
         fine_mesh_steps = SOODE_params.get('fine_mesh_steps', 160)
-        if fine_mesh_steps is None: 
+        if fine_mesh_steps is None:
             fine_mesh_steps = int(self.ml_linear_combinations_density ** (1. / self.SOODE_dims) + 1)
         self.fine_mesh_steps = fine_mesh_steps
-        
+
         drawing_ranges = [
             [drawing_params['xmin'], drawing_params['xmax']],
-            [drawing_params['ymin'], drawing_params['ymax']]    
+            [drawing_params['ymin'], drawing_params['ymax']]
         ]
 
         self.cube_transformer = None
@@ -636,13 +648,13 @@ class SOODE_AC_Core:
         self.drawing_params = drawing_params
         self.drawing_ranges = drawing_ranges
         self.drawing_counter = 0
-            
+
         self.solver_iterations = SOODE_params.get('solver_iterations', 100)
         self.T_bound = T_bound
         self.solver_max_step = inf
         self.SOODE_solver = SOODE_solver
         self.SOODE_func = createFunc(self.SOODE_parameters, SOODE_kind)
-        
+
         self.true_solutions = None
         self.true_solutions_classes = None
 
@@ -650,9 +662,13 @@ class SOODE_AC_Core:
 
         self.classifier = None
         self.classifer_params = self.ml_classifier_params
-        self.clustrizer = MiniBatchKMeans(
-            SOODE_params['__clustering_n']
-        )
+
+        clustrizer = None
+        if SOODE_params.get('__use_c_means', False):
+            clustrizer = CMeansWrapper(SOODE_params['__clustering_n'])
+        else:
+            clustrizer = MiniBatchKMeans(SOODE_params['__clustering_n'])
+        self.clustrizer = clustrizer
         self.rk_paralelism = SOODE_params['__rk_paralelism']
 
         self.points_for_drawing = np.array([[]])
@@ -683,16 +699,17 @@ class SOODE_AC_Core:
                                               T_bound=self.T_bound,
                                               max_step=self.solver_max_step,
                                               rk_iterations=self.solver_iterations)
-            
+
         detected_type, classes = self.solution_classifier(new_solutions, self.SOODE_parameters, self.SOODE_kind)
-        
-        if len(classes) == 0: 
+
+        if len(classes) == 0:
             return
 
-        if self.prev_iteration_proposed_points is None: 
+        if self.prev_iteration_proposed_points is None:
             print(detected_type)
-        
+
         numpyfied_classes = np.argmax(classes, axis=1)
+        print(np.unique(numpyfied_classes, return_counts=True))
 
         if self.true_solutions is not None:
             numpyfied_new_solutions = np.asarray(new_solutions)
@@ -705,55 +722,55 @@ class SOODE_AC_Core:
         solutions_embeddings = normalize(self.solution_embedding_extractor(self.true_solutions), self.initial_region_ranges)
 
         self.classifier = runClassificationTrain(solutions_embeddings,
-                                                 self.true_solutions_classes, 
+                                                 self.true_solutions_classes,
                                                  pretrained_classifier=self.classifier,
-                                                 classifier_name=self.ml_classifier_type, 
+                                                 classifier_name=self.ml_classifier_type,
                                                  params=self.ml_classifier_params)
-        
+
         if self.prev_iteration_proposed_points is None:
             whole_region_points = self.base_initial_cube_points
             new_ml_state_points_by_regions = [whole_region_points]
         else:
 
             predicted_clusters = self.clustrizer.fit_predict(self.prev_iteration_proposed_points)
-            
+
             plt.scatter(self.prev_iteration_proposed_points[:,0], self.prev_iteration_proposed_points[:,1], c=predicted_clusters)
 
             new_ml_state_points_by_regions = [[] for _ in range(self.clustrizer.n_clusters)]
             for array_index, cluster_index in enumerate(predicted_clusters):
                 new_ml_state_points_by_regions[cluster_index].append(
                     self.prev_iteration_proposed_points[array_index])
-        
+
         pool_of_lcopps = None
-        
+
         if self.enable_debug_plots:
             fig: Figure = plt.figure()
 
         colors = []
         for index, linear_combinations_of_proposed_points in enumerate(new_ml_state_points_by_regions):
-            mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points, 
-                                                      self.fine_mesh_steps, 
+            mesh_points_in_the_region = makeFinerMesh(linear_combinations_of_proposed_points,
+                                                      self.fine_mesh_steps,
                                                       self.initial_cube_transformer)
             mesh_points_in_the_region = makeLinearCombinations(mesh_points_in_the_region, self.ml_linear_combinations_density)
             linear_combinations_of_proposed_points = np.append(linear_combinations_of_proposed_points, mesh_points_in_the_region, axis=0)
 
             normalised_lcopp = normalize(linear_combinations_of_proposed_points, self.initial_region_ranges)
             probs = self.classifier.predict_proba(normalised_lcopp)
-            
+
             filtered_lcopps = linear_combinations_of_proposed_points[(probs < self.ml_accuracy_threshold).all(axis=1)]
 
             if pool_of_lcopps is not None:
-                pool_of_lcopps = np.append(filtered_lcopps, pool_of_lcopps, axis=0) 
-            else: 
+                pool_of_lcopps = np.append(filtered_lcopps, pool_of_lcopps, axis=0)
+            else:
                 pool_of_lcopps = filtered_lcopps
-            
+
             colors += [index] * filtered_lcopps.shape[0]
 
         self.prev_iteration_proposed_points = pool_of_lcopps
         print(f'Proposed points count: {len(self.prev_iteration_proposed_points)}')
-        
+
         if self.enable_debug_plots:
-            plt.scatter(pool_of_lcopps[:,0], 
+            plt.scatter(pool_of_lcopps[:,0],
                         pool_of_lcopps[:,1],
                         c=colors)
 
@@ -768,7 +785,7 @@ class SOODE_AC_Core:
         x_index = self.drawing_params['x_index']
         y_index = self.drawing_params['y_index']
 
-        if self.SOODE_dims > 2: 
+        if self.SOODE_dims > 2:
             slice_coordinates = self.drawing_params.get('slice_coords', None)
             if not slice_coordinates:
                 slice_center = np.average(self.prev_iteration_proposed_points, axis=0)
@@ -792,27 +809,28 @@ class SOODE_AC_Core:
         flattened_normalised_points_for_preview = normalize(flattened_points_for_preview, self.initial_region_ranges)
         probs = self.classifier.predict_proba(flattened_normalised_points_for_preview)
         colors, max_confidence  = classesProbabilitiesToSingularValues(probs)
+        #colors = colors * (max_confidence[:, np.newaxis] ** 2)
 
         total_incorrect = (max_confidence < self.ml_accuracy_threshold).sum()
         total_size = np.prod(max_confidence.shape)
         p_area = float(total_size - total_incorrect) / total_size
 
         print(f"PA: {p_area}, total solutions {self.true_solutions.shape[0]}")
-        
+
         proposed_points_proj = self.prev_iteration_proposed_points[:, [x_index, y_index]]
         #hull = ConvexHull(proposed_points_proj)
-        
+
         drawSolutions(
               self.true_solutions,
               self.drawing_params,
               {
-                  'points': self.base_drawing_plane_points, 
+                  'points': self.base_drawing_plane_points,
                   'm_conf': max_confidence,
                   'colors': colors,
                   #'convex_hull': (proposed_points_proj[hull.vertices,0], proposed_points_proj[hull.vertices,1]),
                   'target_file': plot_filename
               })
-        
+
 SOODE_AC_instance = SOODE_AC_Core(
     SOODE_kind='2ph_fluid',
     SOODE_params={
@@ -821,16 +839,16 @@ SOODE_AC_instance = SOODE_AC_Core(
             'cores_count': 12
         },
         'initial_region_ranges': [[0.95, 1.05], [0.95, 1.05], [0.95, 1.05]],
-        'SOODE_parameters': [1.6, 1, 0.25, 0.1, 1],
+        'SOODE_parameters': [1.5, 0.2, 0.25, 0.21],
         'accuracy_threshold': 1 - 1e-4,
         'initial_solutions_count': 1300,
-        'fine_mesh_steps': 40,
+        'fine_mesh_steps': 30,
         'linear_combinations_density': 1500,
         'classifier_type': 'knn',
-        'solver_iterations': 333,
+        'solver_iterations': 3333,
         't_bound': 1e10,
         '__clustering_n': 10,
-        '__rk_paralelism': 10,
+        '__rk_paralelism': 20,
         'drawing_params': {
             'slice_coords': [0.99],
             'xmin': 0.95,
@@ -839,11 +857,11 @@ SOODE_AC_instance = SOODE_AC_Core(
             'ymax': 1.05,
             'x_index': 0,
             'y_index': 1,
-            'draw_last': 0,
+            'draw_last': 5,
             'resolution': 500
         }
     })
-
+## 
 for i in range(100):
     SOODE_AC_instance.runOneIteration()
     SOODE_AC_instance.drawCurrentState(f"{i}_fig.png")
