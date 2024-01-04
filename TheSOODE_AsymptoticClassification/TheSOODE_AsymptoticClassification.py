@@ -175,7 +175,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     for single_color, single_label in zip(target_colors, target_labels):
         patches.append(mpatches.Patch(color=single_color, label=single_label))
     if len(patches) > 0:
-        plt.legend(handles=patches, bbox_to_anchor=(1, 0))
+        plt.legend(handles=patches, bbox_to_anchor=(0, -0.15))
 
     target_file = data_container.get('target_file', None)
     if target_file is None:
@@ -364,6 +364,7 @@ def two_phase_fluid_classifier(solutions, parameters):
             negative_m > the_omgsobig_value
 
         ground_true_vector = [
+            False ,
             p_1 and n_1 ,
             p_2 and n_1 ,
             p_3 and n_1 ,
@@ -639,14 +640,15 @@ class SOODE_AC_Core:
             drawing_params['x_index'] = 0
             drawing_params['y_index'] = 1
             drawing_params['classes_labels'] = \
-                ["+ m,t,v~0;; - t,v~1 m<M",
-                 "+ t,v~1 m>1;; - t,v~1 m<M",
-                 "+ m~1 t~T 1<v<V*;; - t,v~1 m<M",
-                 "+ t,v~1 m>1;; - t,v~1 m<M",
-                 "+ m,t,v~0;; - m or t or v->inf",
-                 "+ t,v~1 m>1;; - m or t or v->inf",
-                 "+ m~1 t~T 1<v<V*;; - m or t or v->inf",
-                 "+ t,v~1 m>1;; - m or t or v->inf"]
+                ["none of the bellow",
+                    "+ m,t,v~0;; - t,v~1 m<M",
+                    "+ t,v~1 m>1;; - t,v~1 m<M",
+                    "+ m~1 t~T 1<v<V*;; - t,v~1 m<M",
+                    "+ t,v~1 m>1;; - t,v~1 m<M",
+                    "+ m,t,v~0;; - m or t or v->inf",
+                    "+ t,v~1 m>1;; - m or t or v->inf",
+                    "+ m~1 t~T 1<v<V*;; - m or t or v->inf",
+                    "+ t,v~1 m>1;; - m or t or v->inf"]
             self.solution_classifier = lambda _1, _2, _3: two_phase_fluid_classifier(_1, _2)
             T_bound = [T_bound, -T_bound]
         else:
@@ -709,6 +711,15 @@ class SOODE_AC_Core:
 
         self.drawing_iter_data = None
 
+    def addSaltsToSolutions(self, new_solutions, classes):
+        #mx = np.max(new_solutions, axis=0)
+        mn = np.min(new_solutions, axis=0)
+        point = mn
+        classes_count = len(classes[0])
+        for i in range(classes_count):
+            classes.append([i == j for j in range(classes_count)])
+            new_solutions.append(mn)
+        
     def runOneIteration(self):
         if self.prev_iteration_proposed_points is None:
             new_solutions = makeSomeSolutions(self.SOODE_solver,
@@ -737,9 +748,10 @@ class SOODE_AC_Core:
 
         if self.prev_iteration_proposed_points is None:
             print(detected_type)
+            self.addSaltsToSolutions(new_solutions, classes)
 
         numpyfied_classes = np.argmax(classes, axis=1)
-        print(np.unique(numpyfied_classes, return_counts=True))
+        print(np.unique(numpyfied_classes, return_counts=True, axis=0))
 
         if self.true_solutions is not None:
             numpyfied_new_solutions = np.asarray(new_solutions)
@@ -883,13 +895,13 @@ SOODE_AC_instance = SOODE_AC_Core(
     SOODE_params={
         'classifier_params': {
             'k': 20,
-            'cores_count': 12
+            'cores_count': 10
         },
         'enable_debug_plots': False,
         'initial_region_ranges': [[0.5, 1.5], [0.5, 1.5], [0.5, 1.5]],
         'SOODE_parameters': [1.5, 0.2, 0.25, 0.21],
         'accuracy_threshold': 1 - 1e-4,
-        'initial_solutions_count': 1300,
+        'initial_solutions_count': 300,
         'fine_mesh_steps': 30,
         'linear_combinations_density': 1500,
         'classifier_type': 'knn',
