@@ -390,6 +390,7 @@ def makeSomeSolutions(rk_method,
 
                       paralelism=None,
                       proposed_points=None,
+                      strip_except_first_and_last=None,
 
                       N=None,
                       dims=None,
@@ -402,13 +403,20 @@ def makeSomeSolutions(rk_method,
         if proposed_points is not None:
             proposed_points = cube_transformer(proposed_points)
 
+    def stripSolution(solution):
+        if strip_except_first_and_last is None: 
+            return solution
+        begining = solution[:strip_except_first_and_last]
+        ending = solution[-strip_except_first_and_last:]
+        return begining + ending
+
     def getSingleSolutionWrap(x_i, rk_method, function, T_bound,
                               max_step, rk_iterations):
         rk = rk_method(function, 0, np.array(x_i, dtype=np.float64),
                        T_bound, max_step=max_step)
 
         new_solution = getSolution(rk, rk_iterations)
-        return new_solution
+        return stripSolution(new_solution)
 
     def getBiderectionalSolutionWrap(x_i, rk_method, function, T_bound,
                                      max_step, rk_iterations):
@@ -436,7 +444,6 @@ def makeSomeSolutions(rk_method,
                 (x_i, rk_method, function, T_bound, max_step, rk_iterations)
                     for x_i in proposed_points)
         solutions = [_ for _ in tqdm(generator)]
-
 
     total = time.time() - begin
     print(f"Elapsed time for solutions: {total} seconds")
@@ -693,6 +700,7 @@ class SOODE_AC_Core:
         self.enable_debug_plots = SOODE_params.get('enable_debug_plots', False)
 
         self.classifier = None
+        self.strip_solutions_except = SOODE_params.get('strip_down_to', None)
         self.classifer_params = self.ml_classifier_params
 
         clustrizer = None
@@ -728,6 +736,7 @@ class SOODE_AC_Core:
                                               max_step=self.solver_max_step,
                                               rk_iterations=self.solver_iterations,
                                               paralelism=self.rk_paralelism,
+                                              strip_except_first_and_last=self.strip_solutions_except,
                                               N=self.initial_solutions_count,
                                               dims=self.SOODE_dims,
                                               vals_range=self.initial_region_ranges,
@@ -737,6 +746,7 @@ class SOODE_AC_Core:
                                               self.SOODE_func,
                                               proposed_points=self.prev_iteration_proposed_points,
                                               paralelism=self.rk_paralelism,
+                                              strip_except_first_and_last=self.strip_solutions_except,
                                               T_bound=self.T_bound,
                                               max_step=self.solver_max_step,
                                               rk_iterations=self.solver_iterations)
@@ -895,7 +905,7 @@ SOODE_AC_instance = SOODE_AC_Core(
     SOODE_params={
         'classifier_params': {
             'k': 20,
-            'cores_count': 10
+            'cores_count': 12
         },
         'enable_debug_plots': False,
         'initial_region_ranges': [[0.5, 1.5], [0.5, 1.5], [0.5, 1.5]],
@@ -906,9 +916,10 @@ SOODE_AC_instance = SOODE_AC_Core(
         'linear_combinations_density': 1500,
         'classifier_type': 'knn',
         'solver_iterations': 3333,
+        'strip_down_to': 5,
         't_bound': 1e10,
         '__clustering_n': 10,
-        '__rk_paralelism': 20,
+        '__rk_paralelism': 10,
         'drawing_params': {
             'slice_coords': [0.99],
             'xmin': 0.5,
@@ -917,7 +928,7 @@ SOODE_AC_instance = SOODE_AC_Core(
             'ymax': 1.5,
             'x_index': 0,
             'y_index': 1,
-            'draw_last': 5,
+            'draw_last': None,
             'resolution': 500
         }
     })
