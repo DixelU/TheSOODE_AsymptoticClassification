@@ -1,5 +1,6 @@
 from cmath import inf, isinf, nan, pi
 import cmath
+from copy import deepcopy
 from enum import unique
 import itertools
 import time
@@ -22,6 +23,7 @@ from sklearn.cluster import KMeans, MiniBatchKMeans
 from scipy.spatial import ConvexHull
 from joblib import Parallel, delayed
 from matplotlib import pyplot as plt
+from matplotlib import patches as mpatches
 from numpy.polynomial.polynomial import polyval, polyfromroots
 
 #from numba import njit
@@ -115,6 +117,11 @@ def getSolution(rk, iters):
 
     return line
 
+def splitByNanInTwo(array):
+    nan_index = np.where(np.isnan(array))
+    nan_index = nan_index[0][0]
+    return array[:nan_index], array[nan_index+1:]
+
 # is a primitive solution's embedding extractor
 def polarAngleExtractor(solutions):
     last_points = solutions[:, -1]
@@ -133,6 +140,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     y = [_[1] for _ in data_container['points']]
     maximal_confidence = data_container['m_conf']
     colors = data_container['colors']
+    target_colors, target_labels = data_container.get('target_colors', ([], []))
 
     x_index = drawing_params['x_index']
     y_index = drawing_params['y_index']
@@ -145,25 +153,35 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
 
     ax = plt.gca()
     ax.set_aspect('equal', adjustable='box')
-    #center = ax.tricontourf(x, y, maximal_confidence, levels=20, linewidths=0.5, colors="k")
-    #center = ax.tricontourf(x, y, maximal_confidence, levels=20, cmap="PuBu_r", antialiased=False)
-    #fig.colorbar(center, ax=ax)
+    
     plt.scatter(x, y, c=colors, marker='x')
 
     for i in range(len(solutions) - number_of_true_solutions, len(solutions), 1):
+        if i < 0:
+            continue
+
         plt.scatter(solutions[i][0][x_index], solutions[i][0][y_index], marker='x')
         if limit_true_solutions:
-            plt.plot(solutions[i][:, x_index], solutions[i][:, y_index], linestyle=":", linewidth=1)
+            px, nx = splitByNanInTwo(solutions[i][:, x_index])
+            py, ny = splitByNanInTwo(solutions[i][:, y_index])
+            plt.plot(px, py, linestyle="-.", linewidth=1)
+            plt.plot(nx, ny, linestyle=":", linewidth=1)
 
     convex_hull = data_container.get('convex_hull', None)
     if convex_hull is not None:
         plt.plot(*convex_hull, 'r--', linewidth=2)
+    
+    patches = []
+    for single_color, single_label in zip(target_colors, target_labels):
+        patches.append(mpatches.Patch(color=single_color, label=single_label))
+    if len(patches) > 0:
+        plt.legend(handles=patches, bbox_to_anchor=(1, 0))
 
     target_file = data_container.get('target_file', None)
     if target_file is None:
         plt.show()
     else:
-        plt.savefig(fname=target_file, dpi=500)
+        plt.savefig(fname=target_file, dpi=1000, bbox_inches='tight')
     plt.close('all')
 
 def GT_base1_classifier(solutions, parameters):
@@ -356,8 +374,8 @@ def two_phase_fluid_classifier(solutions, parameters):
             p_4 and n_2
             ]
         
-        if np.max(ground_true_vector) == 0:
-            print([positive_v, negative_v, positive_m, negative_m, positive_theta, negative_theta])
+        #if np.max(ground_true_vector) == 0:
+        #    print([positive_v, negative_v, positive_m, negative_m, positive_theta, negative_theta])
 
         classes.append(ground_true_vector)
 
@@ -578,6 +596,7 @@ class SOODE_AC_Core:
             self.params_count = 4
             drawing_params['x_index'] = 0
             drawing_params['y_index'] = 1
+            drawing_params['classes_labels'] = ["1", "2", "3", "4"]
             self.solution_classifier = lambda _1, _2, _3: GT_base1_classifier(_1, _2)
             T_bound = [T_bound, -T_bound]
         elif SOODE_kind == 'polynomial':
@@ -590,6 +609,7 @@ class SOODE_AC_Core:
             self.SOODE_dims = 3
             self.params_count = 1
             SOODE_solver = RK45
+            drawing_params['classes_labels'] = ["--", "+-", "-+", "++"]
             self.solution_classifier = lambda _1, _2, _3: target_asymptotic_classifier(_1, _2)
             T_bound = [T_bound, -T_bound]
         elif SOODE_kind == 'pendulums':
@@ -598,6 +618,7 @@ class SOODE_AC_Core:
             SOODE_solver = DOP853
             drawing_params['x_index'] = 0
             drawing_params['y_index'] = 1
+            drawing_params['classes_labels'] = ["stable", "unstable"]
             def init_cube_transf_func(c):
                 c = np.array(c)
                 eps = self.SOODE_parameters[3]
@@ -617,6 +638,15 @@ class SOODE_AC_Core:
             SOODE_solver = RK45
             drawing_params['x_index'] = 0
             drawing_params['y_index'] = 1
+            drawing_params['classes_labels'] = \
+                ["+ m,t,v~0;; - t,v~1 m<M",
+                 "+ t,v~1 m>1;; - t,v~1 m<M",
+                 "+ m~1 t~T 1<v<V*;; - t,v~1 m<M",
+                 "+ t,v~1 m>1;; - t,v~1 m<M",
+                 "+ m,t,v~0;; - m or t or v->inf",
+                 "+ t,v~1 m>1;; - m or t or v->inf",
+                 "+ m~1 t~T 1<v<V*;; - m or t or v->inf",
+                 "+ t,v~1 m>1;; - m or t or v->inf"]
             self.solution_classifier = lambda _1, _2, _3: two_phase_fluid_classifier(_1, _2)
             T_bound = [T_bound, -T_bound]
         else:
@@ -658,7 +688,7 @@ class SOODE_AC_Core:
         self.true_solutions = None
         self.true_solutions_classes = None
 
-        self.enable_debug_plots = SOODE_params.get('enable_debug_plots', True)
+        self.enable_debug_plots = SOODE_params.get('enable_debug_plots', False)
 
         self.classifier = None
         self.classifer_params = self.ml_classifier_params
@@ -724,7 +754,7 @@ class SOODE_AC_Core:
         self.classifier = runClassificationTrain(solutions_embeddings,
                                                  self.true_solutions_classes,
                                                  pretrained_classifier=self.classifier,
-                                                 classifier_name=self.ml_classifier_type,
+                                                  classifier_name=self.ml_classifier_type,
                                                  params=self.ml_classifier_params)
 
         if self.prev_iteration_proposed_points is None:
@@ -778,12 +808,28 @@ class SOODE_AC_Core:
             plt.close('all')
             self.drawing_counter += 1
 
+    def buildLabelSet(self, labels, classes_count):
+        labels = deepcopy(labels)[:classes_count]
+        fetch_array = []
+        
+        for i in range(classes_count):
+            new_zero_array = [0] * classes_count
+            new_zero_array[i] = 1
+            fetch_array.append(new_zero_array)
+
+        fetch_array.append([0] * classes_count)
+        labels.append("undefined")
+
+        colors, _ = classesProbabilitiesToSingularValues(fetch_array)
+        return colors, labels
+
     def drawCurrentState(self, plot_filename=None):
         if len(self.prev_iteration_proposed_points) == 0:
             raise Exception("That's all folks!")
 
         x_index = self.drawing_params['x_index']
         y_index = self.drawing_params['y_index']
+        labels = self.drawing_params.get('classes_labels', [])
 
         if self.SOODE_dims > 2:
             slice_coordinates = self.drawing_params.get('slice_coords', None)
@@ -809,7 +855,7 @@ class SOODE_AC_Core:
         flattened_normalised_points_for_preview = normalize(flattened_points_for_preview, self.initial_region_ranges)
         probs = self.classifier.predict_proba(flattened_normalised_points_for_preview)
         colors, max_confidence  = classesProbabilitiesToSingularValues(probs)
-        #colors = colors * (max_confidence[:, np.newaxis] ** 2)
+        label_colors, labels = self.buildLabelSet(labels, probs.shape[1])
 
         total_incorrect = (max_confidence < self.ml_accuracy_threshold).sum()
         total_size = np.prod(max_confidence.shape)
@@ -827,6 +873,7 @@ class SOODE_AC_Core:
                   'points': self.base_drawing_plane_points,
                   'm_conf': max_confidence,
                   'colors': colors,
+                  'target_colors': (label_colors, labels),
                   #'convex_hull': (proposed_points_proj[hull.vertices,0], proposed_points_proj[hull.vertices,1]),
                   'target_file': plot_filename
               })
@@ -838,7 +885,8 @@ SOODE_AC_instance = SOODE_AC_Core(
             'k': 20,
             'cores_count': 12
         },
-        'initial_region_ranges': [[0.95, 1.05], [0.95, 1.05], [0.95, 1.05]],
+        'enable_debug_plots': False,
+        'initial_region_ranges': [[0.5, 1.5], [0.5, 1.5], [0.5, 1.5]],
         'SOODE_parameters': [1.5, 0.2, 0.25, 0.21],
         'accuracy_threshold': 1 - 1e-4,
         'initial_solutions_count': 1300,
@@ -851,10 +899,10 @@ SOODE_AC_instance = SOODE_AC_Core(
         '__rk_paralelism': 20,
         'drawing_params': {
             'slice_coords': [0.99],
-            'xmin': 0.95,
-            'xmax': 1.05,
-            'ymin': 0.95,
-            'ymax': 1.05,
+            'xmin': 0.5,
+            'xmax': 1.5,
+            'ymin': 0.5,
+            'ymax': 1.5,
             'x_index': 0,
             'y_index': 1,
             'draw_last': 5,
