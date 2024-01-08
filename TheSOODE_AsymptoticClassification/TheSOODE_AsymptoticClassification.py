@@ -156,16 +156,17 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     
     plt.scatter(x, y, c=colors, marker='x')
 
-    for i in range(len(solutions) - number_of_true_solutions, len(solutions), 1):
-        if i < 0:
-            continue
+    if solutions is not None:
+        for i in range(len(solutions) - number_of_true_solutions, len(solutions), 1):
+            if i < 0:
+                continue
 
-        plt.scatter(solutions[i][0][x_index], solutions[i][0][y_index], marker='x')
-        if limit_true_solutions:
-            px, nx = splitByNanInTwo(solutions[i][:, x_index])
-            py, ny = splitByNanInTwo(solutions[i][:, y_index])
-            plt.plot(px, py, linestyle="-.", linewidth=1)
-            plt.plot(nx, ny, linestyle=":", linewidth=1)
+            plt.scatter(solutions[i][0][x_index], solutions[i][0][y_index], marker='x')
+            if limit_true_solutions:
+                px, nx = splitByNanInTwo(solutions[i][:, x_index])
+                py, ny = splitByNanInTwo(solutions[i][:, y_index])
+                plt.plot(px, py, linestyle="-.", linewidth=1)
+                plt.plot(nx, ny, linestyle=":", linewidth=1)
 
     convex_hull = data_container.get('convex_hull', None)
     if convex_hull is not None:
@@ -175,7 +176,7 @@ def drawSolutions(solutions, drawing_params=None, data_container=None):
     for single_color, single_label in zip(target_colors, target_labels):
         patches.append(mpatches.Patch(color=single_color, label=single_label))
     if len(patches) > 0:
-        plt.legend(handles=patches, bbox_to_anchor=(0, -0.15))
+        plt.legend(handles=patches, bbox_to_anchor=(1., -0.15))
 
     target_file = data_container.get('target_file', None)
     if target_file is None:
@@ -718,6 +719,7 @@ class SOODE_AC_Core:
         self.preprev_iter_proposed_points = self.base_initial_cube_points
 
         self.drawing_iter_data = None
+        self.is_read_only = False
 
     def addSaltsToSolutions(self, new_solutions, classes):
         #mx = np.max(new_solutions, axis=0)
@@ -729,6 +731,9 @@ class SOODE_AC_Core:
             new_solutions.append(mn)
         
     def runOneIteration(self):
+        if self.is_read_only: 
+            raise "Read-only mode"
+
         if self.prev_iteration_proposed_points is None:
             new_solutions = makeSomeSolutions(self.SOODE_solver,
                                               self.SOODE_func,
@@ -844,10 +849,18 @@ class SOODE_AC_Core:
 
         colors, _ = classesProbabilitiesToSingularValues(fetch_array)
         return colors, labels
+    
+    def loadClassifierState(self, filename):
+        classifier = joblib.load(filename)        
+        if not isinstance(classifier, KNeighborsClassifier):
+            raise "Unknown classifier type"
+        self.classifier = classifier
+        self.is_read_only = True
 
     def drawCurrentState(self, plot_filename=None):
-        if len(self.prev_iteration_proposed_points) == 0:
-            raise Exception("That's all folks!")
+        if not self.is_read_only:
+            if len(self.prev_iteration_proposed_points) == 0:
+                raise Exception("That's all folks!")
 
         x_index = self.drawing_params['x_index']
         y_index = self.drawing_params['y_index']
@@ -883,10 +896,10 @@ class SOODE_AC_Core:
         total_size = np.prod(max_confidence.shape)
         p_area = float(total_size - total_incorrect) / total_size
 
-        print(f"PA: {p_area}, total solutions {self.true_solutions.shape[0]}")
-
-        proposed_points_proj = self.prev_iteration_proposed_points[:, [x_index, y_index]]
-        #hull = ConvexHull(proposed_points_proj)
+        if not self.is_read_only:
+            print(f"PA: {p_area}, total solutions {self.true_solutions.shape[0]}")
+        else:
+            print(f"PA: {p_area}, read only mode")
 
         drawSolutions(
               self.true_solutions,
@@ -896,7 +909,6 @@ class SOODE_AC_Core:
                   'm_conf': max_confidence,
                   'colors': colors,
                   'target_colors': (label_colors, labels),
-                  #'convex_hull': (proposed_points_proj[hull.vertices,0], proposed_points_proj[hull.vertices,1]),
                   'target_file': plot_filename
               })
 
@@ -928,14 +940,20 @@ SOODE_AC_instance = SOODE_AC_Core(
             'ymax': 1.5,
             'x_index': 0,
             'y_index': 1,
-            'draw_last': None,
+            'draw_last': 0,
             'resolution': 500
         }
     })
-## 
-for i in range(100):
-    SOODE_AC_instance.runOneIteration()
-    SOODE_AC_instance.drawCurrentState(f"{i}_fig.png")
 
-    joblib.dump(SOODE_AC_instance.classifier, f'_nn_iter{i}.pkl')
-    #modelscorev2 = joblib.load('scoreregression.pkl' , mmap_mode ='r')
+SOODE_AC_instance.loadClassifierState("_nn_iter4.pkl")
+for index in range(20):
+    m = index * (1.5 - 0.5) / 20 + 0.5    
+
+    SOODE_AC_instance.drawing_params['slice_coords'][0] = m
+    SOODE_AC_instance.drawCurrentState(f"m_is_{m}_fig.png")
+
+#for i in range(100):
+#    SOODE_AC_instance.runOneIteration()
+#    SOODE_AC_instance.drawCurrentState(f"{i}_fig.png")##
+#
+#    joblib.dump(SOODE_AC_instance.classifier, f'_nn_iter{i}.pkl')
